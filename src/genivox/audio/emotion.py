@@ -138,12 +138,13 @@ class ExternalEmotionAnalyzer:
         if source_path is None:
             raise EmotionAnalysisError("External emotion analysis requires source_path")
 
-        child_environment = None
+        child_environment = os.environ.copy()
+        child_environment["PYTHONUTF8"] = "1"
+        child_environment["PYTHONIOENCODING"] = "utf-8"
         if self.environment is not None:
-            child_environment = os.environ.copy()
             child_environment.update({str(key): str(value) for key, value in self.environment.items()})
 
-        request = json.dumps({"audio_path": str(source_path.resolve())}, ensure_ascii=False)
+        request = json.dumps({"audio_path": str(source_path.resolve())}, ensure_ascii=True)
         try:
             completed = subprocess.run(
                 self._command,

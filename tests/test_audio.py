@@ -126,18 +126,19 @@ class AudioAnalysisTests(unittest.TestCase):
         self.assertFalse(any("Emotion was not inferred" in item for item in profile.warnings))
 
     def test_external_emotion_json_bridge(self) -> None:
-        path = self.root / "voice.wav"
+        path = self.root / "φωνή" / "voice.wav"
+        path.parent.mkdir()
         _write_pcm16(path, np.zeros(16_000))
         bridge = (
             "import json,sys; p=json.load(sys.stdin); "
-            "assert p['audio_path'].endswith('voice.wav'); "
-            "json.dump({'emotion': {'neutral': 0.9}}, sys.stdout)"
+            "assert 'φωνή' in p['audio_path']; "
+            "json.dump({'emotion': {'中立': 0.9}}, sys.stdout, ensure_ascii=False)"
         )
         analyzer = ExternalEmotionAnalyzer([sys.executable, "-c", bridge], timeout_seconds=5)
 
         profile = analyze_prosody(path, emotion_analyzer=analyzer)
 
-        self.assertEqual(profile.emotion, {"neutral": 0.9})
+        self.assertEqual(profile.emotion, {"中立": 0.9})
 
     def test_external_emotion_bridge_reports_invalid_output(self) -> None:
         path = self.root / "voice.wav"

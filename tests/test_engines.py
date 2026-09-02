@@ -459,7 +459,7 @@ class ProcessAdapterTests(unittest.TestCase):
                 "output_path": str(output),
                 "duration_seconds": 0.01,
                 "metadata": {"received_text": request["text"]},
-            }))
+            }, ensure_ascii=False))
             """
         )
         manifest = _manifest(

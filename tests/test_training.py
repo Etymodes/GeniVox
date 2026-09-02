@@ -262,14 +262,14 @@ class RunTests(unittest.TestCase):
                     "import os; print(os.environ['GENIVOX_TEST_VALUE'], flush=True)",
                 ],
                 cwd=root,
-                environment={"GENIVOX_TEST_VALUE": "received"},
+                environment={"GENIVOX_TEST_VALUE": "χαῖρε Привет"},
                 on_output=output.append,
             )
             result = handle.wait(timeout=10)
             self.assertEqual(result.status, RunStatus.SUCCEEDED)
             self.assertEqual(result.exit_code, 0)
-            self.assertEqual(output, ["received"])
-            self.assertIn("received", result.log_path.read_text(encoding="utf-8"))
+            self.assertEqual(output, ["χαῖρε Привет"])
+            self.assertIn("χαῖρε Привет", result.log_path.read_text(encoding="utf-8"))
 
             with self.assertRaises(TypeError):
                 runner.start("python train.py", cwd=root)  # type: ignore[arg-type]

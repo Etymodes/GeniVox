@@ -172,6 +172,10 @@ class TrainingRunner:
         protect_private_file(manifest.log_path)
         protect_private_file(manifest.metrics_path)
         process_environment = os.environ.copy()
+        # Training logs are a UTF-8 protocol too.  Python otherwise writes
+        # redirected stdio with the active Windows code page.
+        process_environment["PYTHONUTF8"] = "1"
+        process_environment["PYTHONIOENCODING"] = "utf-8"
         process_environment.update(env_overrides)
 
         popen_options: dict[str, object] = {}
