@@ -139,7 +139,7 @@ class ControllerTests(unittest.TestCase):
             preferred = root / "manifest.jsonl"
             preferred.write_text("", encoding="utf-8")
             (root / "other.csv").write_text("", encoding="utf-8")
-            self.assertEqual(_resolve_dataset_manifest(root), preferred)
+            self.assertEqual(_resolve_dataset_manifest(root), preferred.resolve())
 
     def test_dataset_audio_snapshot_changes_after_audio_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import wave
 from dataclasses import asdict
@@ -45,15 +46,22 @@ class JsonProcessAdapter(EngineAdapter):
         timeout = float(self.manifest.metadata.get("timeout_seconds", 300.0))
         if timeout <= 0:
             raise EngineConfigurationError("process timeout_seconds must be greater than zero")
+        process_environment = os.environ.copy()
+        # The JSON process protocol is UTF-8.  Redirected Python stdio otherwise uses
+        # the active Windows code page, which corrupts Greek/Cyrillic input before
+        # the bridge can parse it.  These variables are ignored by non-Python engines.
+        process_environment["PYTHONUTF8"] = "1"
+        process_environment["PYTHONIOENCODING"] = "utf-8"
 
         try:
             completed = subprocess.run(
                 command,
-                input=json.dumps(_request_payload(request), ensure_ascii=False),
+                input=json.dumps(_request_payload(request), ensure_ascii=True),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="strict",
+                env=process_environment,
                 cwd=self.manifest.root or None,
                 timeout=timeout,
                 check=False,
