@@ -25,19 +25,31 @@ Heavy model weights are intentionally not downloaded during installation. Correc
 Ancient Greek synthesis also requires a selected historical pronunciation and a compatible phoneme-aware
 engine or a fine-tuned model; v0.1 records the choice as metadata but does not implement a scholarly G2P.
 
-## Launch the workbench on Windows 11
+## Install and verify the workbench on Windows 11
 
 Requirements: 64-bit Python 3.11, Git, and Windows 10/11. No GPU is needed for the UI or Mock WAV test.
 A GPU is strongly recommended for most neural backends, but CPU/offload support depends on that backend.
 
+The current preview is still a stacked feature branch; `main` does not contain the workbench yet. Clone
+the currently tested preview branch until the open pull requests are merged, then verify the reported
+commit before installation:
+
 ```powershell
-git clone --branch feature/desktop-workbench-v0.1 --single-branch https://github.com/Etymodes/GeniVox.git
+git clone --branch feature/windows-lifecycle-v0.3 --single-branch https://github.com/Etymodes/GeniVox.git
 Set-Location GeniVox
-powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run_windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify_windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_windows.ps1
 ```
 
-This starts the desktop UI and its deterministic Mock engine. It does **not** install GPT-SoVITS,
+Bootstrap installs Python packages only into the repository-local `.venv`; it does not modify a global
+Python environment. Pip may reuse its normal per-user download cache.
+It finishes by running the same offline base verification used by Windows CI. `verify_windows.ps1` can
+be rerun at any time: it checks installed dependency consistency and exercises Qt, the default engine
+registry and a deterministic PCM WAV in a temporary workspace. A successful result is `BASE_VERIFIED`,
+not proof that CUDA or a neural engine works.
+
+Launching starts the desktop UI and its deterministic Mock engine. It does **not** install GPT-SoVITS,
 download weights, or train a voice. For real GPT-SoVITS output, install an official compatible release,
 start its local `api_v2.py`, then register its loopback `/tts` endpoint in **模型管理**; see
 [Local model integration](docs/model-integration.md). On an RTX 5070 Laptop GPU with 8 GB VRAM, begin
@@ -55,6 +67,23 @@ the returned audio; see the probe and acceptance steps in [Model integration](do
 PCM WAV analysis works in the base installation. For optional Latin, Ancient Greek and Russian IPA
 previews, install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases) and either add it to
 `PATH` or set `GENIVOX_ESPEAK_PATH` to its executable.
+
+### Update the preview safely
+
+Run updates only from a clean checkout. Inspect `git status --short` first and stop if it lists files you
+want to keep. GeniVox never stashes, resets or deletes local work for an update.
+
+```powershell
+git status --short
+git pull --ff-only
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify_windows.ps1
+```
+
+`git pull --ff-only` refuses a divergent history instead of creating an implicit merge. The bootstrap is
+idempotent: it reuses the existing GeniVox `.venv`, reconciles the local editable install and verifies it.
+Model repositories and their environments remain separate and need their own pinned, engine-specific
+update and acceptance process.
 
 ## Development
 
