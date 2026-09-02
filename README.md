@@ -44,6 +44,14 @@ start its local `api_v2.py`, then register its loopback `/tts` endpoint in **模
 with inference and small GPT-SoVITS experiments. VoxCPM2's documented local LoRA/full-training budgets
 are about 20/40 GB, so those training paths need larger or remote hardware.
 
+`api_v2.py` names the HTTP **API contract**; it does not prove that the loaded acoustic model is
+GPT-SoVITS model v2. The same API can front several model families. A read-only check of the local
+`/openapi.json` document can establish that a compatible `POST /tts` route is reachable, but an
+`API_READY` result is not a successful synthesis test. This repository and its CI contain no upstream
+GPT-SoVITS weights and have not yet run neural inference on the target RTX 5070 Laptop GPU. A real-device
+acceptance test still requires the selected weights, an authorized reference recording and validation of
+the returned audio; see the probe and acceptance steps in [Model integration](docs/model-integration.md).
+
 PCM WAV analysis works in the base installation. For optional Latin, Ancient Greek and Russian IPA
 previews, install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases) and either add it to
 `PATH` or set `GENIVOX_ESPEAK_PATH` to its executable.

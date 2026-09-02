@@ -44,6 +44,7 @@ class ModelManagerPage(QWidget):
 
     scan_requested = Signal()
     verify_environment_requested = Signal(dict)
+    probe_requested = Signal(str)
     import_requested = Signal(dict)
     remove_requested = Signal(str)
     activate_requested = Signal(str)
@@ -51,6 +52,8 @@ class ModelManagerPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._configuration_revision = 0
+        self._status_owner = "initial"
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 22, 24, 24)
         root.setSpacing(14)
@@ -84,8 +87,10 @@ class ModelManagerPage(QWidget):
         )
         self.transport = QComboBox()
         self.transport.addItems(["独立进程", "HTTP 服务", "内置测试后端"])
+        self.transport.setCurrentText("HTTP 服务")
         self.endpoint = QLineEdit()
-        self.endpoint.setPlaceholderText("HTTP 模式，例如 http://127.0.0.1:9880")
+        self.endpoint.setText("http://127.0.0.1:9880/tts")
+        self.endpoint.setPlaceholderText("HTTP 模式，例如 http://127.0.0.1:9880/tts")
         form.addRow("后端类型", self.engine_type)
         form.addRow("名称", self.display_name)
         form.addRow("源码目录", self.engine_root)
@@ -108,18 +113,27 @@ class ModelManagerPage(QWidget):
         import_card.content_layout.addWidget(self.reference_existing)
         import_card.content_layout.addWidget(self.trust_local_code)
         import_actions = QHBoxLayout()
-        verify_button = QPushButton("检查路径")
-        verify_button.clicked.connect(lambda: self.verify_environment_requested.emit(self.import_payload()))
-        import_button = QPushButton("登记模型")
-        import_button.setObjectName("primaryButton")
-        import_button.clicked.connect(self._emit_import)
-        import_actions.addWidget(verify_button)
+        self.verify_button = QPushButton("检查安装与服务")
+        self.verify_button.clicked.connect(
+            lambda: self.verify_environment_requested.emit(self.import_payload())
+        )
+        self.import_button = QPushButton("登记模型")
+        self.import_button.setObjectName("primaryButton")
+        self.import_button.clicked.connect(self._emit_import)
+        import_actions.addWidget(self.verify_button)
         import_actions.addStretch(1)
-        import_actions.addWidget(import_button)
+        import_actions.addWidget(self.import_button)
         import_card.content_layout.addLayout(import_actions)
         self.import_feedback = QLabel("模型不会在登记时加载进显存")
         self.import_feedback.setObjectName("muted")
         import_card.content_layout.addWidget(self.import_feedback)
+        self.engine_type.currentIndexChanged.connect(self._mark_configuration_changed)
+        self.display_name.textChanged.connect(self._mark_configuration_changed)
+        self.engine_root.path_changed.connect(self._mark_configuration_changed)
+        self.python_path.path_changed.connect(self._mark_configuration_changed)
+        self.checkpoint_path.path_changed.connect(self._mark_configuration_changed)
+        self.transport.currentIndexChanged.connect(self._mark_configuration_changed)
+        self.endpoint.textChanged.connect(self._mark_configuration_changed)
         top_row.addWidget(import_card, 3)
 
         env_card = Card("默认本地环境", "供新登记模型预填，不会修改系统环境变量")
@@ -161,12 +175,15 @@ class ModelManagerPage(QWidget):
         model_actions = QHBoxLayout()
         open_button = QPushButton("打开源码目录")
         open_button.clicked.connect(self._emit_open)
+        self.probe_button = QPushButton("检查已选服务")
+        self.probe_button.clicked.connect(self._emit_probe)
         activate_button = QPushButton("选作默认")
         activate_button.clicked.connect(self._emit_activate)
         remove_button = QPushButton("移除登记")
         remove_button.setObjectName("dangerButton")
         remove_button.clicked.connect(self._emit_remove)
         model_actions.addWidget(open_button)
+        model_actions.addWidget(self.probe_button)
         model_actions.addWidget(activate_button)
         model_actions.addStretch(1)
         model_actions.addWidget(remove_button)
@@ -225,6 +242,17 @@ class ModelManagerPage(QWidget):
     def _invalidate_code_trust(self, *_: object) -> None:
         self.trust_local_code.setChecked(False)
 
+    def _mark_configuration_changed(self, *_: object) -> None:
+        self._configuration_revision += 1
+        message = "配置已更改；请重新检查安装与服务"
+        self.import_feedback.setText(message)
+        if self._status_owner == "form":
+            self.status_chip.setText(message)
+
+    @property
+    def configuration_revision(self) -> int:
+        return self._configuration_revision
+
     def _selected_engine_id(self) -> str:
         row = self.models_table.currentRow()
         if row < 0:
@@ -241,6 +269,12 @@ class ModelManagerPage(QWidget):
     def _emit_activate(self) -> None:
         if engine_id := self._selected_engine_id():
             self.activate_requested.emit(engine_id)
+
+    def _emit_probe(self) -> None:
+        if engine_id := self._selected_engine_id():
+            self.probe_requested.emit(engine_id)
+        else:
+            self.set_service_status("请先选择一个已登记的 GPT-SoVITS HTTP 服务")
 
     def _emit_remove(self) -> None:
         if engine_id := self._selected_engine_id():
@@ -300,5 +334,15 @@ class ModelManagerPage(QWidget):
 
     def set_status(self, text: str, *, busy: bool = False) -> None:
         del busy
+        self._status_owner = "form"
         self.status_chip.setText(text)
         self.import_feedback.setText(text)
+
+    def set_service_status(self, text: str) -> None:
+        self._status_owner = "service"
+        self.status_chip.setText(text)
+
+    def set_model_operation_busy(self, busy: bool) -> None:
+        self.verify_button.setEnabled(not busy)
+        self.probe_button.setEnabled(not busy)
+        self.import_button.setEnabled(not busy)

@@ -36,6 +36,53 @@ The latest release verified for this document is `20250606v2pro`; the adapter ta
 Latin or Ancient Greek. V1/V2/V3/V4/V2Pro/ProPlus components are version-specific; preserve the complete
 S1/S2/vocoder family and revision instead of mixing files that happen to share an extension.
 
+### Read-only API probe and acceptance levels
+
+The `v2` in `api_v2.py` identifies the HTTP API contract, not the loaded GPT-SoVITS model generation.
+One `api_v2.py` service may load v1, v2, v3, v4, v2Pro or v2ProPlus components. The service does not
+provide a read-only endpoint that reports its active GPT checkpoint, SoVITS checkpoint, device or model
+generation. In particular, do not interpret the OpenAPI document's `info.version` as a model version.
+
+After starting the service from the GPT-SoVITS repository root, this PowerShell check performs one
+read-only `GET /openapi.json` request and verifies that the advertised API contains `POST /tts`:
+
+```powershell
+$openapi = curl.exe --noproxy "*" --max-time 3 --fail --silent --show-error `
+  http://127.0.0.1:9880/openapi.json | ConvertFrom-Json
+$ttsRoute = $openapi.paths | Select-Object -ExpandProperty '/tts'
+if ($null -eq $ttsRoute.post) {
+    throw 'The local service does not advertise the GPT-SoVITS POST /tts contract.'
+}
+'ROUTE_PRESENT: POST /tts is advertised; use GeniVox to validate its request shape.'
+```
+
+Keep the API bound to `127.0.0.1`. The official API has unauthenticated process-control and
+model-switching routes, so a health check must never call `/control`, `/set_gpt_weights`,
+`/set_sovits_weights` or `/set_refer_audio`. It must also avoid redirects and system proxies.
+
+Interpret the read-only probe states and the subsequent acceptance level as follows:
+
+- `INVALID`: the configured endpoint is absent, malformed, non-loopback or contains credentials,
+  a query or a fragment.
+- `OFFLINE`: the loopback service did not answer within the bounded timeout.
+- `WRONG_SERVICE`: something answered on the port, but it did not return a usable GPT-SoVITS OpenAPI
+  document with a `/tts` route.
+- `INCOMPATIBLE`: an HTTP service answered, but its OpenAPI document did not advertise the expected
+  `POST /tts` contract.
+- `API_READY`: the OpenAPI 3 document advertises `POST /tts`, its core text fields accept strings,
+  and it has no unknown mandatory field that the adapter cannot send. This is a request-shape match,
+  not proof of service identity, model generation or successful synthesis with a particular reference
+  recording and language.
+- `SYNTHESIS_VERIFIED` is a later acceptance level, not a result of the read-only probe: a separately
+  requested, non-streaming `POST /tts` completed with an authorized reference recording and returned
+  a non-empty, complete PCM WAV that passed validation.
+
+The repository's automated tests use mocked HTTP responses and deterministic test audio. No official
+GPT-SoVITS weight files are included, and neither the selected upstream weights nor the target RTX 5070
+Laptop GPU with 8 GB VRAM has been accepted yet. Record the upstream revision, declared model family,
+weight paths/hashes, CUDA/PyTorch versions and one real synthesis result during the device acceptance
+run; until then, display the model generation as unverified even when the API is ready.
+
 ## IndexTTS 2.5
 
 Use a separate Python 3.10/3.11 environment following the upstream repository. Upstream version 2.5 can

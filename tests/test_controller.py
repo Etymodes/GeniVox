@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -26,6 +28,10 @@ from genivox.core.models import (  # noqa: E402
     ProsodyProfile,
 )
 from genivox.core.paths import WorkspacePaths  # noqa: E402
+from genivox.engines import (  # noqa: E402
+    GptSovitsProbeResult,
+    GptSovitsProbeStatus,
+)
 from genivox.ui import MainWindow  # noqa: E402
 from genivox.ui.theme import apply_theme  # noqa: E402
 
@@ -592,6 +598,151 @@ class ControllerTests(unittest.TestCase):
 
             self.assertEqual(controller._language_rows, [])
             self.assertIn("256", window.multilingual_page.status_label.text())
+            window.close()
+
+    def test_registered_gpt_service_probe_is_one_shot_and_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+            controller = WorkbenchController(
+                window, WorkspacePaths(Path(directory) / "workspace")
+            )
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+            ready = GptSovitsProbeResult(
+                GptSovitsProbeStatus.API_READY,
+                "ready",
+                "http://127.0.0.1:9880/openapi.json",
+                12,
+            )
+
+            with patch("genivox.controller.probe_gpt_sovits_api", return_value=ready) as probe:
+                controller.probe_registered_engine("gpt-sovits-v2-local")
+                controller.thread_pool.waitForDone(10_000)
+                self.app.processEvents()
+
+            probe.assert_called_once_with("http://127.0.0.1:9880/tts")
+            row = next(
+                item
+                for item in controller._engine_rows()
+                if item["id"] == "gpt-sovits-v2-local"
+            )
+            self.assertIn("请求形状匹配 GPT-SoVITS api_v2", row["status"])
+            self.assertIn("真实语音合成尚未验收", row["status"])
+            self.assertTrue(window.model_manager_page.probe_button.isEnabled())
+            window.close()
+
+    def test_form_verification_separates_install_weights_and_offline_service(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "GPT-SoVITS"
+            (root / "GPT_SoVITS" / "configs").mkdir(parents=True)
+            (root / "GPT_SoVITS" / "TTS_infer_pack").mkdir(parents=True)
+            (root / "GPT_SoVITS" / "pretrained_models" / "voice").mkdir(parents=True)
+            (root / "runtime").mkdir()
+            for file in (
+                root / "api_v2.py",
+                root / "GPT_SoVITS" / "configs" / "tts_infer.yaml",
+                root / "GPT_SoVITS" / "TTS_infer_pack" / "TTS.py",
+                root / "runtime" / "python.exe",
+                root / "GPT_SoVITS" / "pretrained_models" / "voice" / "gpt.ckpt",
+                root / "GPT_SoVITS" / "pretrained_models" / "voice" / "sovits.pth",
+            ):
+                file.touch()
+            window = MainWindow()
+            controller = WorkbenchController(
+                window, WorkspacePaths(Path(directory) / "workspace")
+            )
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+            offline = GptSovitsProbeResult(
+                GptSovitsProbeStatus.OFFLINE,
+                "connection refused",
+                "http://127.0.0.1:9880/openapi.json",
+                3,
+            )
+
+            with patch("genivox.controller.probe_gpt_sovits_api", return_value=offline):
+                controller.verify_model_environment(
+                    {
+                        "engine_type": "GPT-SoVITS",
+                        "root": str(root),
+                        "transport": "http",
+                        "endpoint": "http://127.0.0.1:9880",
+                    }
+                )
+                controller.thread_pool.waitForDone(10_000)
+                self.app.processEvents()
+
+            status = window.model_manager_page.status_chip.text()
+            self.assertIn("源码结构与 Python 可识别", status)
+            self.assertIn("GPT 1 个 / SoVITS 1 个（仅识别文件，未加载或配对）", status)
+            self.assertIn("服务离线或无法连接", status)
+            self.assertTrue(window.model_manager_page.verify_button.isEnabled())
+            window.model_manager_page.endpoint.setText("http://127.0.0.1:9999/tts")
+            self.assertIn(
+                "配置已更改；请重新检查",
+                window.model_manager_page.status_chip.text(),
+            )
+            window.close()
+
+    def test_non_gpt_http_form_never_uses_gpt_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+            controller = WorkbenchController(
+                window, WorkspacePaths(Path(directory) / "workspace")
+            )
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+
+            with patch("genivox.controller.probe_gpt_sovits_api") as probe:
+                controller.verify_model_environment(
+                    {
+                        "engine_type": "IndexTTS2.5",
+                        "transport": "http",
+                        "endpoint": "http://127.0.0.1:9880",
+                    }
+                )
+                controller.thread_pool.waitForDone(10_000)
+                self.app.processEvents()
+
+            probe.assert_not_called()
+            self.assertIn(
+                "尚无内置只读 HTTP 探针",
+                window.model_manager_page.status_chip.text(),
+            )
+            window.close()
+
+    def test_changed_form_discards_stale_probe_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            window = MainWindow()
+            controller = WorkbenchController(
+                window, WorkspacePaths(Path(directory) / "workspace")
+            )
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+            started = threading.Event()
+            release = threading.Event()
+
+            def delayed_probe(_: str) -> GptSovitsProbeResult:
+                started.set()
+                release.wait(2)
+                return GptSovitsProbeResult(GptSovitsProbeStatus.API_READY, "ready")
+
+            with patch("genivox.controller.probe_gpt_sovits_api", side_effect=delayed_probe):
+                controller.verify_model_environment(
+                    {
+                        "engine_type": "GPT-SoVITS",
+                        "transport": "http",
+                        "endpoint": "http://127.0.0.1:9880/tts",
+                    }
+                )
+                self.assertTrue(started.wait(2))
+                window.model_manager_page.endpoint.setText("http://127.0.0.1:9999/tts")
+                release.set()
+                controller.thread_pool.waitForDone(10_000)
+                self.app.processEvents()
+
+            self.assertIn("已丢弃旧的检查结果", window.model_manager_page.status_chip.text())
+            self.assertTrue(window.model_manager_page.verify_button.isEnabled())
             window.close()
 
 

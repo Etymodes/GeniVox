@@ -24,7 +24,7 @@ def default_engine_registry(workspace: WorkspacePaths) -> EngineRegistry:
             ),
             EngineManifest(
                 id="gpt-sovits-v2-local",
-                name="GPT-SoVITS v2 本地 API",
+                name="GPT-SoVITS 本地 API",
                 transport=EngineTransport.HTTP,
                 capabilities=[
                     Capability.VOICE_CLONE,
@@ -36,6 +36,8 @@ def default_engine_registry(workspace: WorkspacePaths) -> EngineRegistry:
                 checkpoint_dir=str(workspace.models / "gpt-sovits"),
                 metadata={
                     "adapter": "gpt_sovits_v2",
+                    "api_version": "v2",
+                    "model_version": "unverified",
                     "timeout_seconds": 120,
                     "status": "已登记",
                 },
