@@ -7,7 +7,14 @@ from .base import (
     UnsupportedCapabilityError,
     UnsupportedLanguageError,
 )
-from .gpt_sovits import GptSovitsV2HttpAdapter
+from .gpt_sovits import (
+    GptSovitsInstallationProbe,
+    GptSovitsProbeResult,
+    GptSovitsProbeStatus,
+    GptSovitsV2HttpAdapter,
+    inspect_gpt_sovits_installation,
+    probe_gpt_sovits_api,
+)
 from .mock import MockWavAdapter
 from .pipeline import SynthesisPipeline
 from .process import JsonProcessAdapter
@@ -19,6 +26,9 @@ __all__ = [
     "EngineError",
     "EngineExecutionError",
     "EngineRegistry",
+    "GptSovitsInstallationProbe",
+    "GptSovitsProbeResult",
+    "GptSovitsProbeStatus",
     "GptSovitsV2HttpAdapter",
     "InvalidSynthesisRequest",
     "JsonProcessAdapter",
@@ -26,4 +36,6 @@ __all__ = [
     "SynthesisPipeline",
     "UnsupportedCapabilityError",
     "UnsupportedLanguageError",
+    "inspect_gpt_sovits_installation",
+    "probe_gpt_sovits_api",
 ]

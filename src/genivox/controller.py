@@ -45,7 +45,15 @@ from genivox.core.profile import (
     file_sha256,
     save_voice_profile,
 )
-from genivox.engines import EngineConfigurationError, EngineRegistry, SynthesisPipeline
+from genivox.engines import (
+    EngineConfigurationError,
+    EngineRegistry,
+    GptSovitsProbeResult,
+    GptSovitsProbeStatus,
+    SynthesisPipeline,
+    inspect_gpt_sovits_installation,
+    probe_gpt_sovits_api,
+)
 from genivox.experiments import ExperimentRecord, ExperimentStore
 from genivox.languages import EspeakNgPhonemizer, LanguageRouter
 from genivox.services.workers import FunctionWorker
@@ -131,6 +139,15 @@ _PROCESS_PRESETS: dict[str, tuple[list[Capability], list[str]]] = {
 _MAX_SYNTHESIS_CHARACTERS = 20_000
 _MAX_LANGUAGE_SEGMENTS = 256
 
+_GPT_SOVITS_INSTALLATION_ISSUES = {
+    "root_missing": "未提供源码目录",
+    "root_not_directory": "源码目录不存在",
+    "api_v2_missing": "缺少 api_v2.py",
+    "tts_core_missing": "缺少 TTS_infer_pack/TTS.py",
+    "tts_config_missing": "缺少 tts_infer.yaml",
+    "python_missing": "未找到指定或整合包 Python",
+}
+
 
 class WorkbenchController(QObject):
     """Own application state while pages remain passive Qt widgets."""
@@ -192,6 +209,8 @@ class WorkbenchController(QObject):
         self._last_audited_manifest: Path | None = None
         self._last_audited_manifest_sha256: str | None = None
         self._last_audited_audio_snapshot: tuple[tuple[str, int, int], ...] | None = None
+        self._engine_probes: dict[str, tuple[str, GptSovitsProbeResult]] = {}
+        self._model_operation_revision = 0
 
         self._connect()
         self._refresh_engine_views()
@@ -249,6 +268,7 @@ class WorkbenchController(QObject):
         models = self.window.model_manager_page
         models.scan_requested.connect(self.refresh_system)
         models.verify_environment_requested.connect(self.verify_model_environment)
+        models.probe_requested.connect(self.probe_registered_engine)
         models.remove_requested.connect(self.remove_model)
         models.activate_requested.connect(self.activate_model)
         models.open_root_requested.connect(self.open_path)
@@ -340,6 +360,12 @@ class WorkbenchController(QObject):
         rows: list[dict[str, Any]] = []
         for manifest in self.registry:
             metadata = manifest.metadata
+            display_name = manifest.name
+            if (
+                manifest.id == "gpt-sovits-v2-local"
+                and display_name == "GPT-SoVITS v2 本地 API"
+            ):
+                display_name = "GPT-SoVITS 本地 API"
             readiness_issues: list[str] = []
             if manifest.transport is EngineTransport.MOCK:
                 status = "就绪"
@@ -357,13 +383,22 @@ class WorkbenchController(QObject):
                 status = "；".join(readiness_issues) if readiness_issues else "已登记，未执行探测"
             else:
                 runnable = bool(manifest.endpoint)
-                status = "端点未探测；生成时连接" if runnable else "缺少 HTTP 端点"
+                probe_record = self._engine_probes.get(manifest.id)
+                if not runnable:
+                    status = "缺少 HTTP 端点"
+                elif probe_record and probe_record[0] == manifest.endpoint:
+                    status = _gpt_sovits_probe_text(probe_record[1])
+                else:
+                    status = "端点未探测；生成时连接"
+            version = metadata.get("version", "—")
+            if metadata.get("adapter") == "gpt_sovits_v2" and version == "—":
+                version = "API v2 / 模型未验证"
             rows.append(
                 {
                     "id": manifest.id,
-                    "name": manifest.name,
+                    "name": display_name,
                     "engine_type": metadata.get("engine_type", manifest.id),
-                    "version": metadata.get("version", "—"),
+                    "version": version,
                     "device": metadata.get("device", "独立环境"),
                     "root": manifest.root,
                     "checkpoint_dir": manifest.checkpoint_dir,
@@ -1028,21 +1063,148 @@ class WorkbenchController(QObject):
         self.open_path(target)
 
     def verify_model_environment(self, payload: Mapping[str, Any]) -> None:
-        messages: list[str] = []
-        root = payload.get("root")
-        python = payload.get("python")
-        checkpoint = payload.get("checkpoint_dir")
-        if root:
-            messages.append("源码目录有效" if Path(str(root)).is_dir() else "源码目录不存在")
-        if python:
-            messages.append("Python 有效" if Path(str(python)).is_file() else "Python 不存在")
-        if checkpoint:
-            messages.append("权重路径有效" if Path(str(checkpoint)).exists() else "权重路径不存在")
-        if payload.get("transport") == "http":
-            messages.append("HTTP 地址仅登记；生成时才进行连接")
-        self.window.model_manager_page.set_status("；".join(messages) or "未提供可验证路径")
+        snapshot = dict(payload)
+        page = self.window.model_manager_page
+        self._model_operation_revision += 1
+        operation_revision = self._model_operation_revision
+        configuration_revision = page.configuration_revision
+        page.set_model_operation_busy(True)
+        page.set_status("正在后台检查安装与服务；不会加载模型或切换权重…")
+
+        def work() -> tuple[list[str], GptSovitsProbeResult | None]:
+            messages: list[str] = []
+            root = snapshot.get("root")
+            python = snapshot.get("python")
+            checkpoint = snapshot.get("checkpoint_dir")
+            is_gpt_sovits = snapshot.get("engine_type") == "GPT-SoVITS"
+            if root and is_gpt_sovits:
+                report = inspect_gpt_sovits_installation(root, python=python)
+                if report.launch_ready:
+                    messages.append("GPT-SoVITS 源码结构与 Python 可识别")
+                else:
+                    messages.append(
+                        "GPT-SoVITS 安装问题："
+                        + "、".join(
+                            _gpt_sovits_installation_issue(issue) for issue in report.issues
+                        )
+                    )
+                if report.gpt_weight_candidates or report.sovits_weight_candidates:
+                    messages.append(
+                        "权重候选："
+                        f"GPT {len(report.gpt_weight_candidates)} 个 / "
+                        f"SoVITS {len(report.sovits_weight_candidates)} 个"
+                        "（仅识别文件，未加载或配对）"
+                    )
+                else:
+                    messages.append("未发现权重候选（配置仍可能引用外部路径）")
+            else:
+                if root:
+                    messages.append("源码目录有效" if Path(str(root)).is_dir() else "源码目录不存在")
+                if python:
+                    messages.append("Python 有效" if Path(str(python)).is_file() else "Python 不存在")
+            if checkpoint:
+                messages.append("权重路径有效" if Path(str(checkpoint)).exists() else "权重路径不存在")
+
+            probe_result: GptSovitsProbeResult | None = None
+            if snapshot.get("transport") == "http":
+                if not is_gpt_sovits:
+                    messages.append("此后端尚无内置只读 HTTP 探针")
+                else:
+                    raw_endpoint = str(snapshot.get("endpoint") or "").strip()
+                    if raw_endpoint:
+                        probe_result = probe_gpt_sovits_api(_with_tts_path(raw_endpoint))
+                    else:
+                        messages.append("缺少 HTTP 服务地址")
+            return messages, probe_result
+
+        def applied(value: object) -> None:
+            if operation_revision != self._model_operation_revision:
+                return
+            if configuration_revision != page.configuration_revision:
+                page.set_status("表单已更改；已丢弃旧的检查结果，请重新检查")
+                return
+            if not isinstance(value, tuple) or len(value) != 2:
+                page.set_status("安装与服务检查返回了无法识别的结果")
+                return
+            messages, probe_result = value
+            if not isinstance(messages, list):
+                page.set_status("安装与服务检查返回了无法识别的结果")
+                return
+            if isinstance(probe_result, GptSovitsProbeResult):
+                messages.append(_gpt_sovits_probe_text(probe_result))
+            page.set_status("；".join(messages) or "未提供可验证路径")
+
+        def failed(error: str) -> None:
+            if operation_revision != self._model_operation_revision:
+                return
+            if configuration_revision != page.configuration_revision:
+                page.set_status("表单已更改；已丢弃旧的检查错误")
+            else:
+                page.set_status(f"安装与服务检查失败：{error}")
+
+        def finished() -> None:
+            if operation_revision == self._model_operation_revision:
+                page.set_model_operation_busy(False)
+
+        self._run_async(work, succeeded=applied, failed=failed, finished=finished)
+
+    def probe_registered_engine(self, engine_id: str) -> None:
+        page = self.window.model_manager_page
+        try:
+            manifest = self.registry.get_manifest(engine_id)
+        except EngineConfigurationError as exc:
+            page.set_service_status(str(exc))
+            return
+        if (
+            manifest.transport is not EngineTransport.HTTP
+            or manifest.metadata.get("adapter") != "gpt_sovits_v2"
+            or not manifest.endpoint
+        ):
+            page.set_service_status("当前只支持检查已登记的 GPT-SoVITS HTTP 服务")
+            return
+
+        endpoint = manifest.endpoint
+        self._model_operation_revision += 1
+        revision = self._model_operation_revision
+        self._engine_probes.pop(engine_id, None)
+        self._refresh_engine_views()
+        page.set_model_operation_busy(True)
+        page.set_service_status("正在只读检查 /openapi.json；不会触发合成或切换权重…")
+
+        def applied(value: object) -> None:
+            if revision != self._model_operation_revision:
+                return
+            result = value
+            if not isinstance(result, GptSovitsProbeResult):
+                page.set_service_status("服务检查返回了无法识别的结果")
+                return
+            try:
+                current = self.registry.get_manifest(engine_id)
+            except EngineConfigurationError:
+                return
+            if current.endpoint != endpoint:
+                return
+            self._engine_probes[engine_id] = (endpoint, result)
+            self._refresh_engine_views()
+            page.set_service_status(_gpt_sovits_probe_text(result))
+
+        def failed(error: str) -> None:
+            if revision == self._model_operation_revision:
+                page.set_service_status(f"服务检查失败：{error}")
+
+        def finished() -> None:
+            if revision == self._model_operation_revision:
+                page.set_model_operation_busy(False)
+
+        self._run_async(
+            lambda: probe_gpt_sovits_api(endpoint),
+            succeeded=applied,
+            failed=failed,
+            finished=finished,
+        )
 
     def import_model(self, payload: Mapping[str, Any]) -> None:
+        self._invalidate_model_operation()
         if not bool(payload.get("reference_existing", True)):
             self.window.model_manager_page.set_status(
                 "v0.1 只登记现有路径，不复制大型权重；请勾选“引用现有目录”"
@@ -1067,11 +1229,13 @@ class WorkbenchController(QObject):
         self.window.model_manager_page.set_status(detail)
 
     def remove_model(self, engine_id: str) -> None:
+        self._invalidate_model_operation()
         if engine_id in {"mock-local", "gpt-sovits-v2-local"}:
             self.window.model_manager_page.set_status("内置登记可编辑 registry.json，不从界面删除")
             return
         try:
             self.registry.remove(engine_id)
+            self._engine_probes.pop(engine_id, None)
             self.registry.save(registry_path(self.workspace))
         except EngineConfigurationError as exc:
             self.window.model_manager_page.set_status(str(exc))
@@ -1080,6 +1244,7 @@ class WorkbenchController(QObject):
         self.window.model_manager_page.set_status("已移除登记；未删除任何模型文件")
 
     def activate_model(self, engine_id: str) -> None:
+        self._invalidate_model_operation()
         try:
             self.registry.get_manifest(engine_id)
         except EngineConfigurationError as exc:
@@ -1095,6 +1260,10 @@ class WorkbenchController(QObject):
         self.window.model_manager_page.set_status(
             "已选作默认合成登记项；此操作不会加载或切换后端进程中的权重"
         )
+
+    def _invalidate_model_operation(self) -> None:
+        self._model_operation_revision += 1
+        self.window.model_manager_page.set_model_operation_busy(False)
 
     def add_experiment_candidate(self, payload: Mapping[str, Any]) -> None:
         candidate = dict(payload)
@@ -1502,6 +1671,37 @@ def _audit_report(path: Path, audit: DatasetAudit) -> dict[str, Any]:
         "issues": issues,
         "status": f"已审计 {path.name}；原始数据未被修改",
     }
+
+
+def _gpt_sovits_installation_issue(issue: str) -> str:
+    return _GPT_SOVITS_INSTALLATION_ISSUES.get(issue, issue)
+
+
+def _gpt_sovits_probe_text(result: GptSovitsProbeResult) -> str:
+    latency = f"（{result.latency_ms} ms）" if result.latency_ms is not None else ""
+    labels = {
+        GptSovitsProbeStatus.INVALID: "地址无效",
+        GptSovitsProbeStatus.OFFLINE: "服务离线或无法连接",
+        GptSovitsProbeStatus.WRONG_SERVICE: "响应不匹配 GPT-SoVITS api_v2 契约",
+        GptSovitsProbeStatus.INCOMPATIBLE: "GPT-SoVITS API 契约不兼容",
+        GptSovitsProbeStatus.API_READY: (
+            "请求形状匹配 GPT-SoVITS api_v2；模型版本未知，真实语音合成尚未验收"
+        ),
+    }
+    return labels[result.status] + latency
+
+
+def _with_tts_path(endpoint: str) -> str:
+    try:
+        parsed = urllib.parse.urlsplit(endpoint)
+    except ValueError:
+        return endpoint
+    path = parsed.path.rstrip("/")
+    if path.endswith("/tts"):
+        return endpoint
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, path + "/tts", parsed.query, parsed.fragment)
+    )
 
 
 def _manifest_from_import(payload: Mapping[str, Any]) -> EngineManifest:
