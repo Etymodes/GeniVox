@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "engines": [
+    {
+      "id": "mock-local",
+      "name": "Mock WAV (UI development)",
+      "transport": "mock",
+      "capabilities": ["cross_lingual", "speed"],
+      "languages": [],
+      "metadata": {
+        "sample_rate": 16000
+      }
+    },
+    {
+      "id": "gpt-sovits-v2-local",
+      "name": "GPT-SoVITS v2 API",
+      "transport": "http",
+      "capabilities": ["voice_clone", "cross_lingual", "speed"],
+      "languages": ["auto", "zh", "en", "ja", "ko", "yue"],
+      "endpoint": "http://127.0.0.1:9880/tts",
+      "checkpoint_dir": "../../models/gpt-sovits",
+      "metadata": {
+        "adapter": "gpt_sovits_v2",
+        "timeout_seconds": 120
+      }
+    }
+  ]
+}

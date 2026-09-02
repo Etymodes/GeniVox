@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "authorized-speaker-example",
+  "display_name": "Example voice",
+  "consent": {
+    "authorized": true,
+    "scope": "local research and personal synthesis",
+    "recorded_at": "2026-09-02"
+  },
+  "pronunciation_defaults": {
+    "la": "classical-restored",
+    "grc": "attic-5c-bce",
+    "ru": "standard-modern"
+  },
+  "source_recordings": [],
+  "engine_artifacts": {}
+}

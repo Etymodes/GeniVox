@@ -1,0 +1,4 @@
+λόγος — Привет — 世界 — 今日は晴れ — 한글
+
+Latin-script text is deliberately labelled und unless the conservative Latin heuristic
+finds enough evidence. Use [la]...[/la] or [en]...[/en] when pronunciation must be exact.

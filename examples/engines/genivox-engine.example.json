@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "classics-phoneme-engine",
+  "command": ["bridge.py"],
+  "training_command": [
+    "train.py",
+    "--manifest",
+    "{dataset_path}",
+    "--output",
+    "{output_path}",
+    "--epochs",
+    "{epochs}",
+    "--batch-size",
+    "{batch_size}",
+    "--learning-rate",
+    "{learning_rate}"
+  ],
+  "capabilities": [
+    "voice_clone",
+    "cross_lingual",
+    "speed",
+    "phoneme_input",
+    "fine_tune"
+  ],
+  "languages": ["la", "grc", "ru"],
+  "metadata": {
+    "version": "replace-with-tested-version",
+    "checkpoint_abi": "replace-with-engine-specific-abi",
+    "license": "review-upstream-license",
+    "timeout_seconds": 300
+  }
+}
