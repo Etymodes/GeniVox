@@ -36,7 +36,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Bootstrap with Windows PowerShell 5.1
+      - name: Bootstrap base install and verify with Windows PowerShell 5.1
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1
+      - name: Bootstrap again with development dependencies
         shell: cmd
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -WithDev
       - name: Lint
