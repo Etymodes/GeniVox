@@ -1,0 +1,6 @@
+[la]Arma virumque cano, Troiae qui primus ab oris.[/la]
+[grc]μῆνιν ἄειδε, θεά, Πηληϊάδεω Ἀχιλῆος.[/grc]
+[ru]Я помню чудное мгновенье.[/ru]
+[en]The same voice can cross language boundaries.[/en]
+[zh]同一个声音可以连续朗读多种语言。[/zh]
+[ja]同じ声で複数の言語を続けて読み上げます。[/ja]

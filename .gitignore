@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+
+# Local workspaces can contain private voice data and very large checkpoints.
+workspace/
+models/
+datasets/
+runs/
+outputs/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.ogg
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
