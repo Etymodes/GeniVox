@@ -30,6 +30,7 @@ from genivox.ui.pages import (
     TrainingPage,
     VoiceProfilePage,
 )
+from genivox.ui.resources import load_app_icon
 from genivox.ui.theme import COLORS, STYLE_SHEET
 
 NAVIGATION = (
@@ -59,6 +60,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        app_icon = load_app_icon()
+        self.setWindowIcon(app_icon)
         self.setWindowTitle("GeniVox · 本地多语声音实验台")
         self.setMinimumSize(800, 480)
         screen = QGuiApplication.primaryScreen()
@@ -87,10 +90,12 @@ class MainWindow(QMainWindow):
 
         brand = QHBoxLayout()
         brand.setSpacing(10)
-        mark = QLabel("GV")
-        mark.setObjectName("appMark")
-        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setFixedSize(38, 38)
+        self.app_mark = QLabel()
+        self.app_mark.setObjectName("appMark")
+        self.app_mark.setAccessibleName("GeniVox 应用图标")
+        self.app_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.app_mark.setFixedSize(38, 38)
+        self.app_mark.setPixmap(app_icon.pixmap(38, 38))
         brand_text = QVBoxLayout()
         brand_text.setSpacing(0)
         name = QLabel("GeniVox")
@@ -100,7 +105,7 @@ class MainWindow(QMainWindow):
         tagline.setStyleSheet("font-size: 9px; letter-spacing: 1px;")
         brand_text.addWidget(name)
         brand_text.addWidget(tagline)
-        brand.addWidget(mark)
+        brand.addWidget(self.app_mark)
         brand.addLayout(brand_text)
         brand.addStretch(1)
         sidebar_layout.addLayout(brand)
