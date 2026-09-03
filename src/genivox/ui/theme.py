@@ -60,11 +60,7 @@ QFrame#metricCard {{
     border-radius: 9px;
 }}
 QLabel#appMark {{
-    color: white;
-    background: {COLORS['primary']};
-    border-radius: 8px;
-    font-size: 17px;
-    font-weight: 700;
+    background: transparent;
 }}
 QLabel#appName {{
     color: white;

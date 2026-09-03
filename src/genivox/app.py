@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from genivox.controller import WorkbenchController
 from genivox.core.paths import WorkspacePaths, default_workspace
 from genivox.ui import MainWindow
+from genivox.ui.resources import load_app_icon
 from genivox.ui.theme import apply_theme
 
 
@@ -22,6 +23,7 @@ def create_application(
     app.setApplicationName("GeniVox")
     app.setApplicationVersion("0.1.0")
     app.setOrganizationName("Etymodes")
+    app.setWindowIcon(load_app_icon())
     apply_theme(app)
     window = MainWindow()
     controller = WorkbenchController(window, workspace or default_workspace())
