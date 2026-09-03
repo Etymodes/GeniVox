@@ -1,5 +1,6 @@
 param(
-    [switch]$WithDev
+    [switch]$WithDev,
+    [switch]$InstallShortcut
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,6 +91,11 @@ $windowsPowerShell = Join-Path $PSHOME "powershell.exe"
 Invoke-NativeCommand -Executable $windowsPowerShell `
     -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $verifyScript) `
     -FailureMessage "GeniVox verification failed."
+
+if ($InstallShortcut) {
+    $shortcutScript = Join-Path $PSScriptRoot "install_shortcut_windows.ps1"
+    & $shortcutScript
+}
 
 Write-Host "GeniVox environment is ready: $venvPath"
 Write-Host "No model weights were downloaded. Register local engines from Model Manager."

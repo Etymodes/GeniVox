@@ -35,9 +35,9 @@ the currently tested preview branch until the open pull requests are merged, the
 commit before installation:
 
 ```powershell
-git clone --branch feature/windows-lifecycle-v0.3 --single-branch https://github.com/Etymodes/GeniVox.git
+git clone --branch feature/app-icon-v0.4 --single-branch https://github.com/Etymodes/GeniVox.git
 Set-Location GeniVox
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev -InstallShortcut
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify_windows.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_windows.ps1
 ```
@@ -48,6 +48,8 @@ It finishes by running the same offline base verification used by Windows CI. `v
 be rerun at any time: it checks installed dependency consistency and exercises Qt, the default engine
 registry and a deterministic PCM WAV in a temporary workspace. A successful result is `BASE_VERIFIED`,
 not proof that CUDA or a neural engine works.
+`-InstallShortcut` creates or refreshes `GeniVox.lnk` on the current user's Desktop. The shortcut points
+back to this checkout and uses the packaged GeniVox icon; moving or deleting the checkout will break it.
 
 Launching starts the desktop UI and its deterministic Mock engine. It does **not** install GPT-SoVITS,
 download weights, or train a voice. For real GPT-SoVITS output, install an official compatible release,
@@ -76,7 +78,7 @@ want to keep. GeniVox never stashes, resets or deletes local work for an update.
 ```powershell
 git status --short
 git pull --ff-only
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1 -WithDev -InstallShortcut
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify_windows.ps1
 ```
 

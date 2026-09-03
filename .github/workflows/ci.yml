@@ -41,7 +41,51 @@ jobs:
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1
       - name: Bootstrap again with development dependencies
         shell: cmd
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -WithDev
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -WithDev -InstallShortcut
+      - name: Verify desktop shortcut
+        shell: powershell
+        run: |
+          $shortcutPath = Join-Path `
+              ([Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)) `
+              "GeniVox.lnk"
+          if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+              throw "Desktop shortcut was not created: $shortcutPath"
+          }
+          $shell = $null
+          $shortcut = $null
+          try {
+              $shell = New-Object -ComObject WScript.Shell
+              $shortcut = $shell.CreateShortcut($shortcutPath)
+              $runScript = Join-Path $env:GITHUB_WORKSPACE "scripts\run_windows.ps1"
+              $iconPath = Join-Path $env:GITHUB_WORKSPACE "src\genivox\assets\genivox-app-icon.ico"
+              $expectedArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
+              if ($shortcut.TargetPath -ne (Join-Path $PSHOME "powershell.exe")) {
+                  throw "Unexpected shortcut target: $($shortcut.TargetPath)"
+              }
+              if ($shortcut.Arguments -ne $expectedArguments) {
+                  throw "Unexpected shortcut arguments: $($shortcut.Arguments)"
+              }
+              if ($shortcut.WorkingDirectory -ne $env:GITHUB_WORKSPACE) {
+                  throw "Unexpected shortcut working directory: $($shortcut.WorkingDirectory)"
+              }
+              if ($shortcut.WindowStyle -ne 7) {
+                  throw "Shortcut launcher is not minimized: $($shortcut.WindowStyle)"
+              }
+              if ($shortcut.IconLocation -ne "$iconPath,0") {
+                  throw "Unexpected shortcut icon: $($shortcut.IconLocation)"
+              }
+              if ($shortcut.Hotkey) {
+                  throw "Unexpected shortcut hotkey: $($shortcut.Hotkey)"
+              }
+          } finally {
+              if ($null -ne $shortcut) {
+                  [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+              }
+              if ($null -ne $shell) {
+                  [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+              }
+          }
+          Write-Host "SHORTCUT_VERIFIED"
       - name: Lint
         shell: cmd
         run: .venv\Scripts\python.exe -m ruff check .
