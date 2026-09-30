@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QObject, QThreadPool, QUrl, Signal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 
 from genivox.audio import (
@@ -57,6 +57,7 @@ from genivox.engines import (
 )
 from genivox.experiments import ExperimentRecord, ExperimentStore
 from genivox.languages import EspeakNgPhonemizer, LanguageRouter
+from genivox.services.gpt_sovits_service import GptSovitsServiceManager
 from genivox.services.workers import FunctionWorker
 from genivox.system import probe_system
 from genivox.training import (
@@ -212,6 +213,10 @@ class WorkbenchController(QObject):
         self._last_audited_audio_snapshot: tuple[tuple[str, int, int], ...] | None = None
         self._engine_probes: dict[str, tuple[str, GptSovitsProbeResult]] = {}
         self._model_operation_revision = 0
+        self._service_operation_revision = 0
+        self._gpt_sovits_service = GptSovitsServiceManager(
+            self.workspace.runs / "services"
+        )
 
         self._connect()
         self._refresh_engine_views()
@@ -222,6 +227,7 @@ class WorkbenchController(QObject):
         else:
             self.window.set_status("本地控制器已连接")
         self.refresh_system()
+        QTimer.singleShot(0, self._start_configured_services)
 
     def _connect(self) -> None:
         self.window.synthesis_requested.connect(self.synthesize)
@@ -402,6 +408,10 @@ class WorkbenchController(QObject):
                     "version": version,
                     "device": metadata.get("device", "独立环境"),
                     "root": manifest.root,
+                    "python": manifest.python,
+                    "endpoint": manifest.endpoint,
+                    "auto_start": metadata.get("auto_start", False),
+                    "trusted_local_code": metadata.get("trusted_local_code", False),
                     "checkpoint_dir": manifest.checkpoint_dir,
                     "transport": manifest.transport,
                     "runnable": runnable,
@@ -601,6 +611,8 @@ class WorkbenchController(QObject):
     ) -> tuple[SynthesisResult, SynthesisRequest]:
         engine_id = str(payload.get("engine_id", ""))
         manifest = self.registry.get_manifest(engine_id)
+        if manifest.metadata.get("auto_start", False):
+            self._gpt_sovits_service.ensure_ready(manifest)
         text = str(payload.get("text", "")).strip()
         if not text:
             raise ValueError("合成文本不能为空")
@@ -1205,8 +1217,74 @@ class WorkbenchController(QObject):
             finished=finished,
         )
 
+    def _start_configured_services(self) -> None:
+        configured = [
+            manifest for manifest in self.registry
+            if manifest.metadata.get("auto_start") is True
+        ]
+        if configured:
+            self._launch_configured_service(configured[0])
+
+    def _autostart_signature(self) -> tuple[tuple[str, str | None, str | None, str | None], ...]:
+        return tuple(sorted(
+            (item.id, item.root, item.python, item.endpoint)
+            for item in self.registry if item.metadata.get("auto_start") is True
+        ))
+
+    def _reset_service_if_configuration_changed(
+        self, previous: tuple[tuple[str, str | None, str | None, str | None], ...]
+    ) -> None:
+        if previous == self._autostart_signature():
+            return
+        self._service_operation_revision += 1
+        self._gpt_sovits_service.stop()
+        self._gpt_sovits_service = GptSovitsServiceManager(
+            self.workspace.runs / "services"
+        )
+
+    def _launch_configured_service(self, manifest: EngineManifest) -> None:
+        endpoint = manifest.endpoint
+        if endpoint is None:
+            return
+        self._service_operation_revision += 1
+        revision = self._service_operation_revision
+        service = self._gpt_sovits_service
+        page = self.window.model_manager_page
+        page.set_service_status(f"正在后台连接或启动 {manifest.name}…")
+
+        def applied(value: object) -> None:
+            if revision != self._service_operation_revision:
+                return
+            if not isinstance(value, GptSovitsProbeResult):
+                page.set_service_status("本地服务启动结果无效")
+                return
+            try:
+                current = self.registry.get_manifest(manifest.id)
+            except EngineConfigurationError:
+                return
+            if (
+                current.endpoint != endpoint or current.root != manifest.root
+                or current.python != manifest.python
+                or not current.metadata.get("auto_start")
+            ):
+                return
+            self._engine_probes[manifest.id] = (endpoint, value)
+            self._refresh_engine_views()
+            page.set_service_status(f"{manifest.name}：服务已就绪；{_gpt_sovits_probe_text(value)}")
+
+        def failed(error: str) -> None:
+            if revision == self._service_operation_revision:
+                page.set_service_status(f"{manifest.name} 自动启动失败：{error}")
+
+        self._run_async(
+            lambda: service.ensure_ready(manifest),
+            succeeded=applied,
+            failed=failed,
+        )
+
     def import_model(self, payload: Mapping[str, Any]) -> None:
         self._invalidate_model_operation()
+        previous_service = self._autostart_signature()
         if not bool(payload.get("reference_existing", True)):
             self.window.model_manager_page.set_status(
                 "v0.1 只登记现有路径，不复制大型权重；请勾选“引用现有目录”"
@@ -1214,11 +1292,35 @@ class WorkbenchController(QObject):
             return
         try:
             manifest = _manifest_from_import(payload)
-            self.registry.register(manifest)
+            edited_id = str(payload.get("edit_engine_id") or "")
+            if edited_id:
+                existing = self.registry.get_manifest(edited_id)
+                if (
+                    existing.transport is not EngineTransport.HTTP
+                    or existing.metadata.get("adapter") != "gpt_sovits_v2"
+                    or manifest.transport is not EngineTransport.HTTP
+                ):
+                    raise ValueError("目前仅可在界面中修改已登记的 GPT-SoVITS HTTP 服务")
+                inherited_metadata = dict(existing.metadata)
+                if existing.root != manifest.root:
+                    inherited_metadata.pop("training_command", None)
+                manifest = replace(
+                    manifest,
+                    id=edited_id,
+                    metadata={**inherited_metadata, **manifest.metadata},
+                )
+                self.registry.upsert(manifest)
+            else:
+                self.registry.register(manifest)
+            if manifest.metadata.get("auto_start"):
+                for other in self.registry:
+                    if other.id != manifest.id:
+                        other.metadata["auto_start"] = False
             self.registry.save(registry_path(self.workspace))
         except Exception as exc:
             self.window.model_manager_page.set_status(f"登记失败：{exc}")
             return
+        self._reset_service_if_configuration_changed(previous_service)
         self._refresh_engine_views()
         detail = "登记完成"
         if manifest.transport is EngineTransport.PROCESS and not manifest.command:
@@ -1229,12 +1331,15 @@ class WorkbenchController(QObject):
         ):
             detail += "；8 GB 显存不承诺本机微调，先按官方显存要求评估"
         self.window.model_manager_page.set_status(detail)
+        if manifest.metadata.get("auto_start"):
+            self._launch_configured_service(manifest)
 
     def remove_model(self, engine_id: str) -> None:
         self._invalidate_model_operation()
         if engine_id in {"mock-local", "gpt-sovits-v2-local"}:
             self.window.model_manager_page.set_status("内置登记可编辑 registry.json，不从界面删除")
             return
+        previous_service = self._autostart_signature()
         try:
             self.registry.remove(engine_id)
             self._engine_probes.pop(engine_id, None)
@@ -1242,6 +1347,7 @@ class WorkbenchController(QObject):
         except EngineConfigurationError as exc:
             self.window.model_manager_page.set_status(str(exc))
             return
+        self._reset_service_if_configuration_changed(previous_service)
         self._refresh_engine_views()
         self.window.model_manager_page.set_status("已移除登记；未删除任何模型文件")
 
@@ -1541,6 +1647,7 @@ class WorkbenchController(QObject):
                 )
 
     def close(self) -> None:
+        self._gpt_sovits_service.stop()
         if self._active_training and self._active_training.is_running:
             process = self._active_training
             threading.Thread(target=process.cancel, daemon=False).start()
@@ -1790,6 +1897,36 @@ def _manifest_from_import(payload: Mapping[str, Any]) -> EngineManifest:
 
     if transport is EngineTransport.PROCESS and not trusted_local_code:
         raise ValueError("独立进程桥必须明确确认允许启动所选目录中的本地代码")
+
+    auto_start = bool(payload.get("auto_start", False))
+    if auto_start:
+        if transport is not EngineTransport.HTTP or engine_type != "GPT-SoVITS":
+            raise ValueError("随应用启动目前只支持 GPT-SoVITS HTTP 服务")
+        if not trusted_local_code:
+            raise ValueError("自动启动本地模型代码前，请先确认信任所选源码目录")
+        if root is None or python is None:
+            raise ValueError("自动启动需要填写 GPT-SoVITS 源码目录和 Python 可执行文件")
+        if not (root / "api_v2.py").is_file():
+            raise ValueError("源码目录缺少 api_v2.py")
+        if not (root / "GPT_SoVITS" / "configs" / "tts_infer.yaml").is_file():
+            raise ValueError("源码目录缺少 GPT_SoVITS/configs/tts_infer.yaml")
+        try:
+            parsed = urllib.parse.urlsplit(endpoint or "")
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError(f"自动启动服务地址无效：{exc}") from exc
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or port is None
+            or parsed.path != "/tts"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("自动启动服务地址须为 http://127.0.0.1:<端口>/tts")
+    metadata["auto_start"] = auto_start
 
     identifier = _slug(str(configuration.get("id", name))) or f"engine-{uuid.uuid4().hex[:8]}"
     return EngineManifest(

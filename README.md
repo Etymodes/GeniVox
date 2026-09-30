@@ -50,7 +50,9 @@ be rerun at any time: it checks installed dependency consistency and exercises Q
 registry and a deterministic PCM WAV in a temporary workspace. A successful result is `BASE_VERIFIED`,
 not proof that CUDA or a neural engine works.
 `-InstallShortcut` creates or refreshes `GeniVox.lnk` on the current user's Desktop. The shortcut points
-back to this checkout and uses the packaged GeniVox icon; moving or deleting the checkout will break it.
+back to this checkout and uses the packaged GeniVox icon and Windows application identity; moving or
+deleting the checkout will break it. If an older Python taskbar item was pinned, unpin that item and
+pin the refreshed GeniVox shortcut.
 
 Launching starts the desktop UI and its deterministic Mock engine. It does **not** install GPT-SoVITS,
 download weights, or train a voice. For real GPT-SoVITS output, install an official compatible release,
@@ -59,13 +61,19 @@ start its local `api_v2.py`, then register its loopback `/tts` endpoint in **模
 with inference and small GPT-SoVITS experiments. VoxCPM2's documented local LoRA/full-training budgets
 are about 20/40 GB, so those training paths need larger or remote hardware.
 
+After the GPT-SoVITS installation is working, you can choose the registered GPT-SoVITS service in
+**模型管理**, configure its source directory and model-environment Python, confirm that you trust that
+local code, and enable **随 GeniVox 启动本地 GPT-SoVITS 服务**. This opt-in starts `api_v2.py` on
+loopback in the background when GeniVox opens; a service you started separately is reused rather than
+stopped by the app. Startup progress and errors appear in 模型管理, with a local service log.
+
 `api_v2.py` names the HTTP **API contract**; it does not prove that the loaded acoustic model is
 GPT-SoVITS model v2. The same API can front several model families. A read-only check of the local
 `/openapi.json` document can establish that a compatible `POST /tts` route is reachable, but an
 `API_READY` result is not a successful synthesis test. This repository and its CI contain no upstream
-GPT-SoVITS weights and have not yet run neural inference on the target RTX 5070 Laptop GPU. A real-device
-acceptance test still requires the selected weights, an authorized reference recording and validation of
-the returned audio; see the probe and acceptance steps in [Model integration](docs/model-integration.md).
+GPT-SoVITS weights. On 2026-09-30 a user-side GPT-SoVITS run returned a non-silent 4.46-second PCM WAV
+after selecting an M4A recording. The active model family, checkpoint hashes, device stack and audible
+quality have not yet been independently recorded; see [Model integration](docs/model-integration.md).
 
 Reference audio in WAV, FLAC, MP3, M4A or OGG can be selected for synthesis and voice analysis.
 GeniVox decodes the audio locally without changing the original recording. GPT-SoVITS receives a

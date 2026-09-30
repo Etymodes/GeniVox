@@ -76,6 +76,10 @@ jobs:
               if ($shortcut.IconLocation -ne "$iconPath,0") {
                   throw "Unexpected shortcut icon: $($shortcut.IconLocation)"
               }
+              Add-Type -Path (Join-Path $env:GITHUB_WORKSPACE "scripts\ShortcutAppId.cs")
+              if ([GeniVox.ShortcutAppId]::Get($shortcutPath) -ne "Etymodes.GeniVox") {
+                  throw "Unexpected shortcut AppUserModelID"
+              }
               if ($shortcut.Hotkey) {
                   throw "Unexpected shortcut hotkey: $($shortcut.Hotkey)"
               }

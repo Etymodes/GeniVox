@@ -31,6 +31,23 @@ prompt/target language, speed and seed. GPT-SoVITS does not receive a numeric em
 those controls must not be shown as successfully applied. Expression comes mainly from reference audio
 or an engine-specific fine-tuned preset.
 
+### Start the local service with GeniVox
+
+Once the upstream installation, Python environment and weights work when launched manually, GeniVox
+can start its HTTP service on each app launch. In **模型管理**, select the registered GPT-SoVITS HTTP
+service (including the built-in `gpt-sovits-v2-local` row), choose **配置已选服务**, set its source
+directory and its own Python executable, enable **允许启动此目录中的本地模型代码** and
+**随 GeniVox 启动本地 GPT-SoVITS 服务**, then save. This is opt-in and does not install or
+download the upstream model. The configured endpoint must be `http://127.0.0.1:<port>/tts`.
+
+GeniVox launches the upstream `api_v2.py -a 127.0.0.1 -p <port>` from the selected source
+directory with that Python executable, in a background worker, and waits for the read-only
+`/openapi.json` probe. This follows the [upstream API invocation](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/api_v2.py).
+The initial model load can take time. Startup failure and the local log path appear in the model
+manager. A compatible service that is already running is reused; a different service occupying
+the port is never replaced. On exit GeniVox stops only the process it started, leaving a manually
+launched service alone. It never changes active checkpoint weights as part of startup.
+
 The desktop accepts WAV, FLAC, MP3, M4A and OGG reference recordings. It decodes them locally to
 mono PCM16 WAV before the API request, keeps the temporary file available until synthesis completes,
 then removes it. The original recording remains unchanged; the reference must be at most 30 seconds.
@@ -83,10 +100,11 @@ Interpret the read-only probe states and the subsequent acceptance level as foll
   a non-empty, complete PCM WAV that passed validation.
 
 The repository's automated tests use mocked HTTP responses and deterministic test audio. No official
-GPT-SoVITS weight files are included, and neither the selected upstream weights nor the target RTX 5070
-Laptop GPU with 8 GB VRAM has been accepted yet. Record the upstream revision, declared model family,
-weight paths/hashes, CUDA/PyTorch versions and one real synthesis result during the device acceptance
-run; until then, display the model generation as unverified even when the API is ready.
+GPT-SoVITS weight files are included. On 2026-09-30, a user-side GPT-SoVITS run with an M4A reference
+produced a non-silent 4.46-second PCM WAV; this validates a real local output path beyond the mocked
+tests. The upstream revision, selected weights, GPU/CUDA/PyTorch stack, and audible quality still need
+to be recorded for complete device acceptance. Until then, display the model generation as unverified
+even when the API is ready.
 
 ## IndexTTS 2.5
 

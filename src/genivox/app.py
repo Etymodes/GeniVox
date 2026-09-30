@@ -13,12 +13,24 @@ from genivox.ui import MainWindow
 from genivox.ui.resources import load_app_icon
 from genivox.ui.theme import apply_theme
 
+WINDOWS_APP_ID = "Etymodes.GeniVox"
+
 
 def create_application(
     argv: Sequence[str] | None = None,
     *,
     workspace: WorkspacePaths | None = None,
 ) -> tuple[QApplication, MainWindow, WorkbenchController]:
+    if sys.platform == "win32":
+        import ctypes
+
+        set_app_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        set_app_id.argtypes = [ctypes.c_wchar_p]
+        set_app_id.restype = ctypes.c_long
+        result = set_app_id(WINDOWS_APP_ID)
+        if result != 0:
+            raise OSError(f"Could not set the GeniVox Windows AppUserModelID: {result:#x}")
+
     app = QApplication.instance() or QApplication(list(argv or []))
     app.setApplicationName("GeniVox")
     app.setApplicationVersion("0.1.0")

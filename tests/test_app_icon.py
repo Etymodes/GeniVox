@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import struct
+import sys
 import tempfile
 import unittest
 from importlib.resources import files
@@ -13,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtGui import QIcon, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from genivox.app import create_application  # noqa: E402
+from genivox.app import WINDOWS_APP_ID, create_application  # noqa: E402
 from genivox.core.paths import WorkspacePaths  # noqa: E402
 from genivox.ui.resources import APP_ICON_RESOURCE, load_app_icon  # noqa: E402
 
@@ -56,6 +57,18 @@ class AppIconTests(unittest.TestCase):
             try:
                 self.assertFalse(app.windowIcon().isNull())
                 self.assertFalse(window.windowIcon().isNull())
+                if sys.platform == "win32":
+                    import ctypes
+
+                    app_id = ctypes.c_void_p()
+                    get_app_id = ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID
+                    get_app_id.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+                    get_app_id.restype = ctypes.c_long
+                    self.assertEqual(get_app_id(ctypes.byref(app_id)), 0)
+                    try:
+                        self.assertEqual(ctypes.wstring_at(app_id), WINDOWS_APP_ID)
+                    finally:
+                        ctypes.windll.ole32.CoTaskMemFree(app_id)
                 self.assertEqual(window.app_mark.text(), "")
                 pixmap = window.app_mark.pixmap()
                 self.assertIsNotNone(pixmap)
