@@ -137,6 +137,103 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(manifest.endpoint, "http://127.0.0.1:9880/tts")
         self.assertEqual(manifest.metadata["adapter"], "gpt_sovits_v2")
 
+    def test_gpt_service_auto_start_requires_explicit_trust_and_paths(self) -> None:
+        payload = {
+            "engine_type": "GPT-SoVITS",
+            "name": "GPT local",
+            "transport": "http",
+            "endpoint": "http://127.0.0.1:9880/tts",
+            "auto_start": True,
+        }
+        with self.assertRaisesRegex(ValueError, "信任"):
+            _manifest_from_import(payload)
+        with self.assertRaisesRegex(ValueError, "源码目录和 Python"):
+            _manifest_from_import({**payload, "trusted_local_code": True})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "GPT_SoVITS" / "configs").mkdir(parents=True)
+            (root / "api_v2.py").touch()
+            (root / "GPT_SoVITS" / "configs" / "tts_infer.yaml").touch()
+            python = root / "python.exe"
+            python.touch()
+            manifest = _manifest_from_import(
+                {**payload, "root": str(root), "python": str(python),
+                 "trusted_local_code": True}
+            )
+            self.assertTrue(manifest.metadata["auto_start"])
+            self.assertEqual(manifest.root, str(root.resolve()))
+            self.assertEqual(manifest.python, str(python.resolve()))
+            with self.assertRaisesRegex(ValueError, "127.0.0.1"):
+                _manifest_from_import(
+                    {**payload, "root": str(root), "python": str(python),
+                     "endpoint": "http://localhost:9880/tts", "trusted_local_code": True}
+                )
+
+    def test_builtin_gpt_service_can_be_configured_for_auto_start(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "GPT-SoVITS"
+            (source / "GPT_SoVITS" / "configs").mkdir(parents=True)
+            (source / "api_v2.py").touch()
+            (source / "GPT_SoVITS" / "configs" / "tts_infer.yaml").touch()
+            python = source / "python.exe"
+            python.touch()
+            window = MainWindow()
+            controller = WorkbenchController(window, WorkspacePaths(root / "workspace"))
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+            original_service = controller._gpt_sovits_service
+            with (
+                patch.object(controller, "_launch_configured_service") as launch,
+                patch.object(original_service, "stop") as stopped,
+            ):
+                controller.import_model(
+                    {
+                        "edit_engine_id": "gpt-sovits-v2-local",
+                        "engine_type": "GPT-SoVITS",
+                        "name": "GPT-SoVITS 本地 API",
+                        "transport": "http",
+                        "endpoint": "http://127.0.0.1:9880/tts",
+                        "root": str(source),
+                        "python": str(python),
+                        "trusted_local_code": True,
+                        "auto_start": True,
+                    }
+                )
+            manifest = controller.registry.get_manifest("gpt-sovits-v2-local")
+            self.assertTrue(manifest.metadata["auto_start"])
+            self.assertEqual(manifest.root, str(source.resolve()))
+            self.assertEqual(
+                controller.registry.get_manifest("mock-local").metadata.get("auto_start"),
+                False,
+            )
+            self.assertEqual(len(list(controller.registry)), 2)
+            launch.assert_called_once()
+            stopped.assert_called_once()
+            self.assertIsNot(controller._gpt_sovits_service, original_service)
+
+            configured_service = controller._gpt_sovits_service
+            with patch.object(configured_service, "stop") as stopped:
+                controller.import_model(
+                    {
+                        "edit_engine_id": "gpt-sovits-v2-local",
+                        "engine_type": "GPT-SoVITS",
+                        "name": "GPT-SoVITS 本地 API",
+                        "transport": "http",
+                        "endpoint": "http://127.0.0.1:9880/tts",
+                        "root": str(source),
+                        "python": str(python),
+                        "trusted_local_code": True,
+                        "auto_start": False,
+                    }
+                )
+            stopped.assert_called_once()
+            self.assertIsNot(controller._gpt_sovits_service, configured_service)
+            self.assertFalse(
+                controller.registry.get_manifest("gpt-sovits-v2-local").metadata["auto_start"]
+            )
+            window.close()
+
     def test_http_import_is_restricted_to_loopback(self) -> None:
         with self.assertRaisesRegex(ValueError, "本地模式"):
             _manifest_from_import(

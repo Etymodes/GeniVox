@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Signal
@@ -54,6 +55,8 @@ class ModelManagerPage(QWidget):
         super().__init__(parent)
         self._configuration_revision = 0
         self._status_owner = "initial"
+        self._editing_engine_id = ""
+        self._registered_engines: dict[str, dict[str, Any]] = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 22, 24, 24)
         root.setSpacing(14)
@@ -107,11 +110,17 @@ class ModelManagerPage(QWidget):
         self.trust_local_code.setToolTip(
             "进程会继承当前用户权限；更换源码目录、Python 或连接方式后必须重新确认"
         )
+        self.auto_start = QCheckBox("随 GeniVox 启动本地 GPT-SoVITS 服务")
+        self.auto_start.setToolTip(
+            "仅适用于已确认可信、配置了源码目录及 Python 的 GPT-SoVITS HTTP 服务；"
+            "应用启动时检查本机服务，离线时才尝试启动"
+        )
         self.engine_root.path_changed.connect(self._invalidate_code_trust)
         self.python_path.path_changed.connect(self._invalidate_code_trust)
         self.transport.currentIndexChanged.connect(self._invalidate_code_trust)
         import_card.content_layout.addWidget(self.reference_existing)
         import_card.content_layout.addWidget(self.trust_local_code)
+        import_card.content_layout.addWidget(self.auto_start)
         import_actions = QHBoxLayout()
         self.verify_button = QPushButton("检查安装与服务")
         self.verify_button.clicked.connect(
@@ -120,12 +129,17 @@ class ModelManagerPage(QWidget):
         self.import_button = QPushButton("登记模型")
         self.import_button.setObjectName("primaryButton")
         self.import_button.clicked.connect(self._emit_import)
+        self.new_registration_button = QPushButton("新建登记")
+        self.new_registration_button.setEnabled(False)
+        self.new_registration_button.clicked.connect(self._reset_registration_form)
         import_actions.addWidget(self.verify_button)
         import_actions.addStretch(1)
+        import_actions.addWidget(self.new_registration_button)
         import_actions.addWidget(self.import_button)
         import_card.content_layout.addLayout(import_actions)
         self.import_feedback = QLabel("模型不会在登记时加载进显存")
         self.import_feedback.setObjectName("muted")
+        self.import_feedback.setWordWrap(True)
         import_card.content_layout.addWidget(self.import_feedback)
         self.engine_type.currentIndexChanged.connect(self._mark_configuration_changed)
         self.display_name.textChanged.connect(self._mark_configuration_changed)
@@ -134,6 +148,11 @@ class ModelManagerPage(QWidget):
         self.checkpoint_path.path_changed.connect(self._mark_configuration_changed)
         self.transport.currentIndexChanged.connect(self._mark_configuration_changed)
         self.endpoint.textChanged.connect(self._mark_configuration_changed)
+        self.trust_local_code.toggled.connect(self._mark_configuration_changed)
+        self.auto_start.toggled.connect(self._mark_configuration_changed)
+        self.engine_type.currentIndexChanged.connect(self._sync_auto_start_eligibility)
+        self.transport.currentIndexChanged.connect(self._sync_auto_start_eligibility)
+        self._sync_auto_start_eligibility()
         top_row.addWidget(import_card, 3)
 
         env_card = Card("默认本地环境", "供新登记模型预填，不会修改系统环境变量")
@@ -171,12 +190,16 @@ class ModelManagerPage(QWidget):
         )
         self.models_table.horizontalHeader().setStretchLastSection(True)
         self.models_table.setMinimumHeight(210)
+        self.models_table.currentCellChanged.connect(self._update_configure_button)
         models_layout.addWidget(self.models_table)
         model_actions = QHBoxLayout()
         open_button = QPushButton("打开源码目录")
         open_button.clicked.connect(self._emit_open)
         self.probe_button = QPushButton("检查已选服务")
         self.probe_button.clicked.connect(self._emit_probe)
+        self.configure_button = QPushButton("配置已选服务")
+        self.configure_button.setEnabled(False)
+        self.configure_button.clicked.connect(self._configure_selected_service)
         activate_button = QPushButton("选作默认")
         activate_button.clicked.connect(self._emit_activate)
         remove_button = QPushButton("移除登记")
@@ -184,6 +207,7 @@ class ModelManagerPage(QWidget):
         remove_button.clicked.connect(self._emit_remove)
         model_actions.addWidget(open_button)
         model_actions.addWidget(self.probe_button)
+        model_actions.addWidget(self.configure_button)
         model_actions.addWidget(activate_button)
         model_actions.addStretch(1)
         model_actions.addWidget(remove_button)
@@ -219,6 +243,8 @@ class ModelManagerPage(QWidget):
             "endpoint": self.endpoint.text().strip() or None,
             "reference_existing": self.reference_existing.isChecked(),
             "trusted_local_code": self.trust_local_code.isChecked(),
+            "auto_start": self.auto_start.isChecked(),
+            "edit_engine_id": self._editing_engine_id or None,
             "device": self.default_device.currentText(),
             "precision": self.default_precision.currentText(),
         }
@@ -231,16 +257,85 @@ class ModelManagerPage(QWidget):
         if payload["transport"] == "process" and not payload["root"]:
             self.import_feedback.setText("独立进程模式需要填写后端源码或安装目录。")
             return
+        if payload["auto_start"] and not (
+            payload["engine_type"] == "GPT-SoVITS" and payload["transport"] == "http"
+        ):
+            self.import_feedback.setText("仅 GPT-SoVITS HTTP 服务支持随应用启动。")
+            return
+        if payload["auto_start"] and not (payload["root"] and payload["python"]):
+            self.import_feedback.setText("自动启动需要填写 GPT-SoVITS 源码目录和 Python 可执行文件。")
+            return
         if (
-            payload["transport"] == "process" or payload["root"]
+            payload["transport"] == "process" or payload["root"] or payload["auto_start"]
         ) and not payload["trusted_local_code"]:
             self.import_feedback.setText("请确认允许启动所选目录中的本地模型代码。")
             return
-        self.import_feedback.setText("等待控制器验证并登记…")
+        self.import_feedback.setText(
+            "等待控制器验证并保存…" if self._editing_engine_id else "等待控制器验证并登记…"
+        )
         self.import_requested.emit(payload)
 
     def _invalidate_code_trust(self, *_: object) -> None:
         self.trust_local_code.setChecked(False)
+
+    def _sync_auto_start_eligibility(self, *_: object) -> None:
+        eligible = (
+            self.engine_type.currentText() == "GPT-SoVITS"
+            and self.transport.currentText() == "HTTP 服务"
+        )
+        if not eligible:
+            self.auto_start.setChecked(False)
+        self.auto_start.setEnabled(eligible)
+
+    def _update_configure_button(self, *_: object) -> None:
+        engine_id = self._selected_engine_id()
+        engine = self._registered_engines.get(engine_id, {})
+        transport = getattr(engine.get("transport"), "value", engine.get("transport"))
+        self.configure_button.setEnabled(
+            transport == "http" and (
+                engine.get("engine_type") == "GPT-SoVITS" or engine_id == "gpt-sovits-v2-local"
+            )
+        )
+
+    def _configure_selected_service(self) -> None:
+        engine_id = self._selected_engine_id()
+        engine = self._registered_engines.get(engine_id)
+        if not self.configure_button.isEnabled() or engine is None:
+            return
+        self._editing_engine_id = engine_id
+        self.engine_type.setCurrentText("GPT-SoVITS")
+        self.display_name.setText(str(engine.get("name") or ""))
+        self.engine_root.set_path(str(engine.get("root") or ""))
+        self.python_path.set_path(str(engine.get("python") or ""))
+        checkpoint = str(engine.get("checkpoint_dir") or "")
+        if engine_id == "gpt-sovits-v2-local" and checkpoint and not Path(checkpoint).exists():
+            checkpoint = ""  # Built-in placeholder is not a requirement for external GPT weights.
+        self.checkpoint_path.set_path(checkpoint)
+        self.transport.setCurrentText("HTTP 服务")
+        self.endpoint.setText(str(engine.get("endpoint") or ""))
+        self.auto_start.setChecked(bool(engine.get("auto_start", False)))
+        # Restore only the trust previously recorded for exactly these paths.
+        # Any later path edit clears the checkbox via _invalidate_code_trust.
+        self.trust_local_code.setChecked(bool(engine.get("trusted_local_code", False)))
+        self.engine_type.setEnabled(False)
+        self.transport.setEnabled(False)
+        self.import_button.setText("保存服务配置")
+        self.new_registration_button.setEnabled(True)
+        self.import_feedback.setText("已载入服务配置；修改源码目录或 Python 后请重新确认允许启动本地代码")
+
+    def _reset_registration_form(self) -> None:
+        self._editing_engine_id = ""
+        self.engine_type.setEnabled(True)
+        self.transport.setEnabled(True)
+        self.import_button.setText("登记模型")
+        self.new_registration_button.setEnabled(False)
+        self.engine_root.set_path("")
+        self.python_path.set_path("")
+        self.checkpoint_path.set_path("")
+        self.trust_local_code.setChecked(False)
+        self.auto_start.setChecked(False)
+        self.display_name.clear()
+        self.import_feedback.setText("填写新模型配置后登记")
 
     def _mark_configuration_changed(self, *_: object) -> None:
         self._configuration_revision += 1
@@ -282,6 +377,7 @@ class ModelManagerPage(QWidget):
 
     def set_engines(self, engines: Iterable[object]) -> None:
         rows = list(engines)
+        self._registered_engines = {}
         self.models_table.setRowCount(len(rows))
         self.capability_table.setRowCount(len(rows))
         for row, engine in enumerate(rows):
@@ -290,6 +386,17 @@ class ModelManagerPage(QWidget):
             root = str(_read(engine, "root", "") or "")
             checkpoint = _read(engine, "checkpoint_dir", "—") or "—"
             transport = getattr(_read(engine, "transport", "—"), "value", _read(engine, "transport", "—"))
+            self._registered_engines[engine_id] = {
+                "name": name,
+                "engine_type": _read(engine, "engine_type", ""),
+                "root": root,
+                "python": _read(engine, "python", "") or "",
+                "checkpoint_dir": _read(engine, "checkpoint_dir", "") or "",
+                "transport": transport,
+                "endpoint": _read(engine, "endpoint", "") or "",
+                "auto_start": _read(engine, "auto_start", False),
+                "trusted_local_code": _read(engine, "trusted_local_code", False),
+            }
             values = (
                 name,
                 _read(engine, "engine_type", engine_id),
@@ -318,6 +425,7 @@ class ModelManagerPage(QWidget):
                 self.capability_table.setItem(row, offset, QTableWidgetItem("✓" if reported else "—"))
         self.models_table.resizeColumnsToContents()
         self.capability_table.resizeColumnsToContents()
+        self._update_configure_button()
 
     def set_environment(self, environment: Mapping[str, Any]) -> None:
         parts = [
@@ -341,6 +449,8 @@ class ModelManagerPage(QWidget):
     def set_service_status(self, text: str) -> None:
         self._status_owner = "service"
         self.status_chip.setText(text)
+        self.status_chip.setToolTip(text)
+        self.import_feedback.setText(text)
 
     def set_model_operation_busy(self, busy: bool) -> None:
         self.verify_button.setEnabled(not busy)

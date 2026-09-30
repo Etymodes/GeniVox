@@ -12,6 +12,9 @@ $iconPath = Join-Path $projectRoot "src\genivox\assets\genivox-app-icon.ico"
 $venvPythonw = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
 $shortcutDirectory = Split-Path -Parent $ShortcutPath
 $expectedArguments = "-X utf8 -m genivox"
+$appId = "Etymodes.GeniVox"
+
+Add-Type -Path (Join-Path $PSScriptRoot "ShortcutAppId.cs")
 
 foreach ($requiredFile in @($iconPath, $venvPythonw)) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -53,6 +56,7 @@ try {
         $shortcut = $null
         $shell = $null
     }
+    [GeniVox.ShortcutAppId]::Set($temporaryShortcutPath, $appId)
 
     if (-not (Test-Path -LiteralPath $temporaryShortcutPath -PathType Leaf)) {
         throw "Shortcut creation did not produce: $temporaryShortcutPath"
@@ -92,6 +96,7 @@ try {
         $shortcut.Arguments -ne $expectedArguments -or
         $shortcut.WorkingDirectory -ne $projectRoot -or
         $shortcut.IconLocation -ne "$iconPath,0" -or
+        [GeniVox.ShortcutAppId]::Get($ShortcutPath) -ne $appId -or
         $shortcut.WindowStyle -ne 1 -or
         $shortcut.Hotkey) {
         throw "Shortcut verification failed: $ShortcutPath"
