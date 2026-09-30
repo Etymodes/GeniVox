@@ -13,10 +13,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
+from genivox.audio.convert import normalized_audio
 from genivox.core.models import (
     Capability,
     EngineManifest,
@@ -590,6 +591,13 @@ class GptSovitsV2HttpAdapter(EngineAdapter):
             raise EngineExecutionError("GPT-SoVITS requires a prompt/reference language")
 
     def _synthesize(self, request: SynthesisRequest) -> SynthesisResult:
+        reference = request.reference_audio
+        if reference is None:
+            raise EngineExecutionError("GPT-SoVITS requires a reference audio file")
+        with normalized_audio(reference) as decoded_path:
+            return self._synthesize_with_reference(replace(request, reference_audio=decoded_path))
+
+    def _synthesize_with_reference(self, request: SynthesisRequest) -> SynthesisResult:
         payload = self._build_payload(request)
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         http_request = urllib.request.Request(

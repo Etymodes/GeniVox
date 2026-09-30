@@ -61,7 +61,7 @@ class VoiceProfilePage(QWidget):
         self.record_button.setCheckable(True)
         self.record_button.setEnabled(False)
         self.record_button.setText("录音（v0.2）")
-        self.record_button.setToolTip("当前版本请导入本地 PCM WAV")
+        self.record_button.setToolTip("当前版本请导入本地音频文件")
         self.record_button.toggled.connect(self._toggle_recording)
         header.actions.addWidget(self.record_button)
         root.addWidget(header)
@@ -69,8 +69,8 @@ class VoiceProfilePage(QWidget):
         source_card = Card("参考声音", "建议使用 10–30 秒、单人、无混响和背景音乐的录音")
         source_row = QHBoxLayout()
         self.audio_path = PathField(
-            "选择未压缩 PCM WAV；其他格式请先用 FFmpeg 转换",
-            file_filter="PCM WAV (*.wav *.wave);;所有文件 (*.*)",
+            "选择 WAV / FLAC / MP3 / M4A / OGG 音频文件",
+            file_filter="音频文件 (*.wav *.wave *.flac *.mp3 *.m4a *.ogg);;所有文件 (*.*)",
         )
         self.import_button = QPushButton("导入")
         self.import_button.clicked.connect(self._emit_import)

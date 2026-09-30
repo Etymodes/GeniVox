@@ -24,6 +24,7 @@ from genivox.audio import (
     analyze_prosody,
     read_pcm_wav,
 )
+from genivox.audio.convert import normalized_audio
 from genivox.core.config import (
     default_engine_registry,
     load_or_create_engine_registry,
@@ -785,11 +786,12 @@ class WorkbenchController(QObject):
 
         def analyze() -> tuple[Any, list[float]]:
             analyzer = _configured_emotion_analyzer()
-            profile = analyze_prosody(audio_path, emotion_analyzer=analyzer)
-            audio = read_pcm_wav(audio_path)
-            mono = audio.mono
-            stride = max(1, len(mono) // 1_500)
-            return profile, np.asarray(mono[::stride], dtype=float).tolist()
+            with normalized_audio(audio_path) as decoded_path:
+                profile = analyze_prosody(decoded_path, emotion_analyzer=analyzer)
+                audio = read_pcm_wav(decoded_path)
+                mono = audio.mono
+                stride = max(1, len(mono) // 1_500)
+                return profile, np.asarray(mono[::stride], dtype=float).tolist()
 
         def succeeded(result: tuple[Any, list[float]]) -> None:
             current_path = self.window.voice_profile_page.audio_path.path()
