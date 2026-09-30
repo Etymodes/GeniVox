@@ -314,7 +314,7 @@ class GptSovitsAdapterTests(unittest.TestCase):
             self.assertEqual(captured["timeout"], 9)
             payload = captured["payload"]
             assert isinstance(payload, dict)
-            self.assertEqual(payload["ref_audio_path"], str(reference))
+            self.assertEqual(Path(payload["ref_audio_path"]).resolve(), reference.resolve())
             self.assertEqual(payload["prompt_text"], "你好")
             self.assertEqual(payload["prompt_lang"], "zh")
             self.assertEqual(payload["text_lang"], "en")
