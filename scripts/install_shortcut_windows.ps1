@@ -8,14 +8,12 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$runScript = Join-Path $PSScriptRoot "run_windows.ps1"
 $iconPath = Join-Path $projectRoot "src\genivox\assets\genivox-app-icon.ico"
-$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-$windowsPowerShell = Join-Path $PSHOME "powershell.exe"
+$venvPythonw = Join-Path $projectRoot ".venv\Scripts\pythonw.exe"
 $shortcutDirectory = Split-Path -Parent $ShortcutPath
-$expectedArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
+$expectedArguments = "-X utf8 -m genivox"
 
-foreach ($requiredFile in @($runScript, $iconPath, $venvPython, $windowsPowerShell)) {
+foreach ($requiredFile in @($iconPath, $venvPythonw)) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "Required file not found: $requiredFile"
     }
@@ -27,19 +25,23 @@ if (-not (Test-Path -LiteralPath $shortcutDirectory -PathType Container)) {
 $temporaryShortcutPath = Join-Path `
     $shortcutDirectory `
     (".GeniVox-{0}.tmp.lnk" -f [Guid]::NewGuid().ToString("N"))
+$backupShortcutPath = Join-Path `
+    $shortcutDirectory `
+    (".GeniVox-{0}.bak.lnk" -f [Guid]::NewGuid().ToString("N"))
+$replacedShortcut = $false
 $shell = $null
 $shortcut = $null
 try {
     try {
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($temporaryShortcutPath)
-        $shortcut.TargetPath = $windowsPowerShell
+        $shortcut.TargetPath = $venvPythonw
         $shortcut.Arguments = $expectedArguments
         $shortcut.WorkingDirectory = $projectRoot
         $shortcut.IconLocation = "$iconPath,0"
         $shortcut.Description = "GeniVox local multilingual voice laboratory"
         $shortcut.Hotkey = ""
-        $shortcut.WindowStyle = 7
+        $shortcut.WindowStyle = 1
         $shortcut.Save()
     } finally {
         if ($null -ne $shortcut -and [Runtime.InteropServices.Marshal]::IsComObject($shortcut)) {
@@ -63,13 +65,17 @@ try {
         if (($existingShortcut.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Shortcut destination is a reparse point: $ShortcutPath"
         }
-        [IO.File]::Replace($temporaryShortcutPath, $ShortcutPath, $null)
+        [IO.File]::Replace($temporaryShortcutPath, $ShortcutPath, $backupShortcutPath)
+        $replacedShortcut = $true
     } else {
         [IO.File]::Move($temporaryShortcutPath, $ShortcutPath)
     }
 } finally {
     if (Test-Path -LiteralPath $temporaryShortcutPath -PathType Leaf) {
         Remove-Item -LiteralPath $temporaryShortcutPath -Force
+    }
+    if ($replacedShortcut -and (Test-Path -LiteralPath $backupShortcutPath -PathType Leaf)) {
+        Remove-Item -LiteralPath $backupShortcutPath -Force
     }
 }
 
@@ -82,11 +88,11 @@ $shortcut = $null
 try {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($ShortcutPath)
-    if ($shortcut.TargetPath -ne $windowsPowerShell -or
+    if ($shortcut.TargetPath -ne $venvPythonw -or
         $shortcut.Arguments -ne $expectedArguments -or
         $shortcut.WorkingDirectory -ne $projectRoot -or
         $shortcut.IconLocation -ne "$iconPath,0" -or
-        $shortcut.WindowStyle -ne 7 -or
+        $shortcut.WindowStyle -ne 1 -or
         $shortcut.Hotkey) {
         throw "Shortcut verification failed: $ShortcutPath"
     }

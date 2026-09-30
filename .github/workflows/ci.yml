@@ -42,6 +42,9 @@ jobs:
       - name: Bootstrap again with development dependencies
         shell: cmd
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -WithDev -InstallShortcut
+      - name: Refresh existing desktop shortcut with Windows PowerShell 5.1
+        shell: cmd
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_shortcut_windows.ps1
       - name: Verify desktop shortcut
         shell: powershell
         run: |
@@ -56,10 +59,9 @@ jobs:
           try {
               $shell = New-Object -ComObject WScript.Shell
               $shortcut = $shell.CreateShortcut($shortcutPath)
-              $runScript = Join-Path $env:GITHUB_WORKSPACE "scripts\run_windows.ps1"
               $iconPath = Join-Path $env:GITHUB_WORKSPACE "src\genivox\assets\genivox-app-icon.ico"
-              $expectedArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
-              if ($shortcut.TargetPath -ne (Join-Path $PSHOME "powershell.exe")) {
+              $expectedArguments = "-X utf8 -m genivox"
+              if ($shortcut.TargetPath -ne (Join-Path $env:GITHUB_WORKSPACE ".venv\Scripts\pythonw.exe")) {
                   throw "Unexpected shortcut target: $($shortcut.TargetPath)"
               }
               if ($shortcut.Arguments -ne $expectedArguments) {
@@ -68,8 +70,8 @@ jobs:
               if ($shortcut.WorkingDirectory -ne $env:GITHUB_WORKSPACE) {
                   throw "Unexpected shortcut working directory: $($shortcut.WorkingDirectory)"
               }
-              if ($shortcut.WindowStyle -ne 7) {
-                  throw "Shortcut launcher is not minimized: $($shortcut.WindowStyle)"
+              if ($shortcut.WindowStyle -ne 1) {
+                  throw "Shortcut launcher has unexpected window style: $($shortcut.WindowStyle)"
               }
               if ($shortcut.IconLocation -ne "$iconPath,0") {
                   throw "Unexpected shortcut icon: $($shortcut.IconLocation)"
@@ -84,6 +86,10 @@ jobs:
               if ($null -ne $shell) {
                   [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
               }
+          }
+          if (Get-ChildItem -LiteralPath (Split-Path -Parent $shortcutPath) -File -Force |
+              Where-Object { $_.Name -like '.GeniVox-*.bak.lnk' -or $_.Name -like '.GeniVox-*.tmp.lnk' }) {
+              throw "Temporary shortcut files were left on the desktop"
           }
           Write-Host "SHORTCUT_VERIFIED"
       - name: Lint
