@@ -7,6 +7,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from genivox.audio.convert import AudioConversionError, ffmpeg_executable
 from genivox.languages import EspeakNgPhonemizer
 
 
@@ -40,11 +41,19 @@ def probe_system(workspace: Path) -> SystemInfo:
         workspace_free_gib=round(usage.free / (1024**3), 1),
         gpus=_probe_nvidia_gpus(),
         tools={
-            "ffmpeg": shutil.which("ffmpeg") is not None,
+            "ffmpeg": _ffmpeg_available(),
             "espeak-ng": EspeakNgPhonemizer().available,
             "git": shutil.which("git") is not None,
         },
     )
+
+
+def _ffmpeg_available() -> bool:
+    try:
+        ffmpeg_executable()
+    except AudioConversionError:
+        return False
+    return True
 
 
 def _probe_nvidia_gpus() -> list[GpuInfo]:

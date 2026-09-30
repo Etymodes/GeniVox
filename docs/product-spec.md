@@ -29,7 +29,7 @@ Provide one local desktop application in which a user can:
 | Engine registry | A valid manifest reloads; invalid capability/transport values produce a useful error. |
 | Synthesis | The mock engine creates a valid WAV; the GPT-SoVITS adapter builds the documented API request. |
 | Mixed language | Explicit tags are lossless and runs preserve source order. Greek, low-confidence Cyrillic and pure-Han spans require an explicit language tag or selected fallback before dispatch. |
-| Voice analysis | A PCM WAV produces duration, level, clipping/silence and F0-related measurements. |
+| Voice analysis | WAV, FLAC, MP3, M4A and OGG references produce duration, level, clipping/silence and F0-related measurements after local decoding. |
 | Emotion | No model means “not analyzed,” never an invented emotion label. |
 | Dataset | Missing/invalid WAV files, duplicates and duration/language/emotion imbalance are reported without mutation. Other codecs are not decoded by the base audit. |
 | Training | A configured child process streams logs/metrics and can be cancelled without blocking the UI. |

@@ -145,8 +145,8 @@ class SynthesisPage(QWidget):
         input_card.content_layout.addWidget(reference_label)
         reference_row = QHBoxLayout()
         self.reference_path = PathField(
-            "3–30 秒干净人声 WAV / FLAC / MP3",
-            file_filter="音频文件 (*.wav *.flac *.mp3 *.m4a *.ogg);;所有文件 (*.*)",
+            "参考录音：WAV / FLAC / MP3 / M4A / OGG（GPT-SoVITS 建议 3–10 秒）",
+            file_filter="音频文件 (*.wav *.wave *.flac *.mp3 *.m4a *.ogg);;所有文件 (*.*)",
         )
         self.reference_path.path_changed.connect(self.reference_changed)
         self.reference_path.path_changed.connect(

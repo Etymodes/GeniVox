@@ -15,7 +15,8 @@ planned rather than implemented in v0.1.
 - Capability-aware engine manifests, a functional GPT-SoVITS HTTP adapter, and a documented generic
   process-bridge contract. IndexTTS and VoxCPM currently have registration presets only.
 - Mixed-script segmentation plus explicit tags such as `[la]`, `[grc]`, `[el]`, `[ru]`, `[en]` and `[zh]`.
-- Offline WAV quality/prosody analysis; emotion recognition is an optional local analyzer, never guessed.
+- Offline reference-audio quality/prosody analysis for WAV, FLAC, MP3, M4A and OGG;
+  emotion recognition is an optional local analyzer, never guessed.
 - Read-only dataset audit and distribution guidance; supervision of user-supplied external training
   commands with logs and JSONL metric charts.
 - A default workspace outside the repository. A custom workspace inside a Git repository is not
@@ -66,8 +67,11 @@ GPT-SoVITS weights and have not yet run neural inference on the target RTX 5070 
 acceptance test still requires the selected weights, an authorized reference recording and validation of
 the returned audio; see the probe and acceptance steps in [Model integration](docs/model-integration.md).
 
-PCM WAV analysis works in the base installation. For optional Latin, Ancient Greek and Russian IPA
-previews, install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases) and either add it to
+Reference audio in WAV, FLAC, MP3, M4A or OGG can be selected for synthesis and voice analysis.
+GeniVox decodes the audio locally without changing the original recording. GPT-SoVITS receives a
+temporary PCM WAV reference, since its API does not read every source format. For optional Latin,
+Ancient Greek and Russian IPA previews, install
+[eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases) and either add it to
 `PATH` or set `GENIVOX_ESPEAK_PATH` to its executable.
 
 ### Update the preview safely

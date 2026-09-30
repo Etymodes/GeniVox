@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
 import wave
 from pathlib import Path
 from unittest.mock import patch
+
+import imageio_ffmpeg
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -41,6 +44,34 @@ class ControllerTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
         apply_theme(cls.app)
+
+    def test_voice_analysis_accepts_m4a_and_keeps_original_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recording = root / "语音 录音.m4a"
+            subprocess.run(
+                [
+                    imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "sine=frequency=220:duration=2",
+                    "-c:a", "aac", str(recording),
+                ],
+                capture_output=True,
+                check=True,
+            )
+            window = MainWindow()
+            controller = WorkbenchController(window, WorkspacePaths(root / "workspace"))
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+            window.voice_profile_page.set_audio_path(recording)
+
+            controller.analyze_voice(str(recording))
+            controller.thread_pool.waitForDone(10_000)
+            self.app.processEvents()
+
+            self.assertEqual(controller._last_profile_path, recording.resolve())
+            self.assertIsNotNone(controller._last_profile)
+            self.assertTrue(recording.is_file())
+            window.close()
 
     def test_process_bundle_manifest_is_registered_without_running_code(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -294,7 +294,7 @@ class GptSovitsAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             reference = root / "我的参考.wav"
-            reference.write_bytes(b"reference")
+            _write_wav(reference)
             output = root / "output.wav"
             request = SynthesisRequest(
                 text="Hello, κόσμε!",
@@ -350,7 +350,7 @@ class GptSovitsAdapterTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             reference = Path(directory) / "reference.wav"
-            reference.write_bytes(b"reference")
+            _write_wav(reference)
             output = Path(directory) / "out.wav"
             request = SynthesisRequest(
                 text="hello",
@@ -412,7 +412,7 @@ class GptSovitsAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             reference = root / "reference.wav"
-            reference.write_bytes(b"reference")
+            _write_wav(reference)
             request = SynthesisRequest(
                 text="hello",
                 output_path=root / "out.wav",

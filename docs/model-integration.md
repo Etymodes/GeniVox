@@ -31,6 +31,11 @@ prompt/target language, speed and seed. GPT-SoVITS does not receive a numeric em
 those controls must not be shown as successfully applied. Expression comes mainly from reference audio
 or an engine-specific fine-tuned preset.
 
+The desktop accepts WAV, FLAC, MP3, M4A and OGG reference recordings. It decodes them locally to
+mono PCM16 WAV before the API request, keeps the temporary file available until synthesis completes,
+then removes it. The original recording remains unchanged; the reference must be at most 30 seconds.
+For GPT-SoVITS, use a clean 3–10 second clip as required by the upstream inference path.
+
 The latest release verified for this document is `20250606v2pro`; the adapter targets the public
 `api_v2.py` request contract and is not pinned to a tested upstream commit. Its public language set does not include Russian,
 Latin or Ancient Greek. V1/V2/V3/V4/V2Pro/ProPlus components are version-specific; preserve the complete
